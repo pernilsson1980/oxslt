@@ -128,7 +128,7 @@ fn lookup(name: &str) -> Option<Info> {
 }
 
 /// libxml2's htmlBooleanAttrs.
-fn is_boolean(name: &str) -> bool {
+pub(crate) fn is_boolean(name: &str) -> bool {
     const BOOLEAN: &[&str] = &[
         "checked", "compact", "declare", "defer", "disabled", "ismap", "multiple", "nohref",
         "noresize", "noshade", "nowrap", "readonly", "selected",

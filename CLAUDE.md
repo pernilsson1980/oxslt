@@ -16,7 +16,9 @@ Roadmap step 3, full XSLT 1.0 and EXSLT, is done (2026-11-09). Imports, keys, `x
 
 **Decided 2026-11-09: no `exsl:document`.** oxslt doesn't write files, so the stylesheets that write their output through `exsl:document` (DocBook's man pages and chunked HTML) aren't supported, and the gate uses the single-page HTML stylesheet. `element-available('exsl:document')` is false. This keeps the security rule below, that untrusted stylesheets can run in `cargo test`.
 
-Still to do in PoC scope: the XHTML writer and EBCDIC. Most remaining failures are in the `output`, `namespace` and `numberformat` categories.
+Drop-in testing on Debian builds started 2026-11-09 (`tests/dropin`, `scripts/dropin.sh`): 17 bookworm packages are built offline with a wrapper as `/usr/bin/xsltproc` that runs oxslt and xsltproc on every call and records differences. It found and fixed: catalog resolution of command-line stylesheets, stylesheet-only runs, `document()` of a result tree fragment, EXSLT dates, `dyn:evaluate`, `--xinclude`, variables in `xsl:number` patterns, undeclared command-line parameters, leaked `exclude-result-prefixes` from included modules, `--` in comments, and libxml2's XHTML serializer. All 715 calls now match except those needing `exsl:document` (DocBook man pages and chunked HTML).
+
+Still to do in PoC scope: EBCDIC (conformance `output22`, the only failing conformance test).
 
 On 2026-11-08 we decided to build oxslt rather than contribute to libxml-rs. libxml-rs 0.1.0-alpha.60 passed 5 of 13 differential test cases and couldn't compile DocBook XSL. The evaluation and its test cases are kept outside this repository.
 
@@ -126,6 +128,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
     - Named templates and globals keep their highest-precedence definition. Attribute sets merge, the highest-precedence attributes first.
     - `cdata-section-elements` comes only from the highest-precedence module that has any. An imported unnamed `xsl:decimal-format` is ignored; a named one's first declaration wins.
     - An unknown top-level `xsl:` element is a compile error even in forwards-compatible mode, and so is a top-level element with no namespace.
+    - **A module's `exclude-result-prefixes` is never popped** within an import unit: libxslt pushes it when it starts the module, so an included module's exclusions also apply to the including module's later templates. Each `xsl:import` starts afresh. `tests/cases/31-include-exclusions`.
   - `element-available()` and `function-available()` answer as libxslt does: `xsl:param`, `xsl:sort`, `xsl:when` and the like count as available elements, `xsl:key` and other declarations don't.
   - **Keys** (`xsl:key`, `key()`): each (document, key name) is indexed on first use, every node of the document tested against the key's patterns. Several definitions with one name add up; an undeclared key gives an empty node-set. A literal key name's prefix is resolved at compile time, as for `format-number`. `tests/cases/20-key-details` pins it down.
   - **libxslt can't match some `key()` and `id()` patterns** (`pattern::never_matches_in_libxslt`). When a step has two predicates, or a predicate on a step other than an element name or `*`, libxslt matches by evaluating `"//" + pattern` as XPath. With a `key(` or `id(` start that's invalid, so the pattern never matches.
@@ -138,6 +141,8 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 - **Global variables are computed when first referenced**, as libxslt does, then any left over in declaration order. A reference to one not computed yet makes the evaluation fail and run again after computing it (`exec::compute_global`), with the root as context and no locals. A global that needs itself is an error.
 - **Keys are indexed all at once per document**, as libxslt's `xsltInitAllDocKeys` does: the first `key()` on a document indexes every key there, highest precedence first, then in declaration order (`ss.key_order`). That order is visible. DocBook's `gid` key uses `generate-id()`, which numbers the nodes of every document a `key()` touches.
 - **EXSLT** (`src/xslt/exslt.rs`), ported from libexslt 0.8.20: `exsl:node-set` and `exsl:object-type`, sets, strings and math, plus `saxon:systemId`, `saxon:line-number` and the `node-set` aliases libxslt registers. `tests/cases/23-exslt` pins them down.
+  - Dates and times (`src/xslt/dates.rs`): `date:date-time` and the functions taking a date apart, ported with libexslt's parser quirks; the current time honours `SOURCE_DATE_EPOCH` (UTC). Without it libexslt uses the local zone, oxslt UTC. `date:add`, `difference`, `duration`, `seconds` and `sum` aren't ported. `tests/cases/25-exslt-dates`.
+  - `dyn:evaluate` compiles its string between evaluations (compiling may intern names) and evaluates it in the current context; errors give an empty node-set, but requests to load or compute something first still fail so the evaluation runs again. `tests/cases/26-dyn-evaluate`.
   - `function-available()` answers exactly as xsltproc does, from `exslt::AVAILABLE`. That includes the dates, `dyn:evaluate`, saxon and crypto functions oxslt doesn't implement yet; calling one is a runtime error naming it.
   - Functions that make nodes (`exsl:node-set` of a string, `str:tokenize`, `str:split`, `str:replace`, which returns a text node) build a small document and fail; `env_eval` adds it and runs the evaluation again, and the call finds it by its sequence number in the evaluation.
   - QNames in strings resolve with the instruction's in-scope namespaces (`Location::namespaces`). The compiler resolves literal ones, for `key()`, `format-number()` and both `*-available()` functions.
@@ -158,8 +163,13 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - An empty comment writes nothing but its indentation.
   - UTF-16 output is little-endian with a BOM, written by `src/encoding.rs` because `encoding_rs` can't encode it.
   - `tests/cases/15-output-details` pins these down.
-  - Not done: libxml2's separate XHTML writer, for an XHTML DOCTYPE in xml output (`output82`), and EBCDIC.
+  - **The XHTML serializer** (xmlsave.c's xhtmlNodeDumpOutput) is used for xml output whose DOCTYPE has an XHTML 1.0 public or system ID: `<br />` for empty XHTML elements and `<p></p>` for others, a Content-Type `meta` added to a `head` under the root `html`, boolean attributes given their name as value, `id` from `name` and `lang`/`xml:lang` added in pairs, and `xmlns` on a bare `html`. `tests/cases/32`–`34` pin it down.
+  - Not done: EBCDIC.
+- `src/xinclude.rs`: `--xinclude`, as libxml2 2.9.14 processes it, for inputs and `document()` loads: the document is rebuilt with each include replaced (text kept apart at include boundaries, as libxml2's marker nodes keep it), fallbacks, text includes, the shorthand, `element()`, `xpointer()` and `xmlns()` XPointer forms, and the `xml:base` fixup. An XInclude error makes xsltproc skip the input (exit 6). `tests/cases/27`, `28`.
 - `src/cli.rs`: xsltproc's options and exit codes.
+  - Stylesheets and inputs named on the command line open through the catalogs, as libxml2's entity loader opens them; the resolved path is the document's location.
+  - A stylesheet with no input is compiled and nothing transformed (exit 0, even with compile errors), as xsltproc does.
+  - Command-line parameters are globals even when the stylesheet doesn't declare them, and are ignored when a module declares an `xsl:variable` of that name.
   - The transform runs on a thread with a 512 MiB stack.
   - Template recursion deeper than 3,000 stops with libxslt's message and exit 10.
 - `tests/differential.rs`: runs every case in `tests/cases/` (ours, committed) and `tests/real/` (third-party, git-ignored), comparing stdout bytes and exit code with `expected/`.
@@ -182,6 +192,8 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - `parse`: any input parses or errors, never panics, and the tree is consistent.
   - `xpath`: any string compiles or errors, and evaluation never panics or overflows. Node-sets stay sorted.
   - `transform`: a stylesheet, a NUL byte and an input; compiling, transforming and serialising never panic. It runs with a work budget and `ResourceLoader::none()`, which reads no files. Seed it with the conformance tests and `tests/cases` (stylesheet, NUL, input).
+- `tests/dropin/`, `scripts/dropin.sh`: drop-in testing on Debian package builds (offline container, comparing wrapper as `/usr/bin/xsltproc`). Results in `target/dropin/out`.
+- `tests/cli.rs`: command-line behaviour the differential cases can't express (no input file, missing stylesheet).
 - `tests/limits.rs`: runaway transforms (exponential recursion, string doubling, nested XPath, a timeout) stop with the limit's error; ordinary ones don't notice the limits.
 - `tests/common/mod.rs`: runs oxslt on a case and compares its result with the recorded output.
 - `tests/reference/Dockerfile`: the `oxslt-reference` image, with Debian `xsltproc` and DocBook, used to record expected output.

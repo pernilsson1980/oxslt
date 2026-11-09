@@ -185,6 +185,11 @@ fn xml_document(doc: &Document, names: &NamePool, output: &Output, s: &mut Strin
             s.push('\n');
         }
     }
+    // libxml2 writes a document whose DOCTYPE names XHTML 1.0 with its
+    // XHTML serializer (xmlIsXHTML, xhtmlNodeDumpOutput). libxslt makes the
+    // DOCTYPE only when there's a root element, as above.
+    let xhtml = root_qname(doc, names).is_some() && is_xhtml(output);
+    let charset = output.encoding.as_deref().unwrap_or("UTF-8");
     let children: Vec<NodeId> = doc.children(doc.root()).collect();
     for (i, &c) in children.iter().enumerate() {
         let f = Fmt {
@@ -192,6 +197,7 @@ fn xml_document(doc: &Document, names: &NamePool, output: &Output, s: &mut Strin
             format: output.indent == Some(true),
             level: 0,
             root: true,
+            xhtml: xhtml.then_some(charset),
         };
         node(doc, names, c, f, s);
         if newlines && matches!(doc.kind(c), NodeKind::Comment(_)) && i + 1 < children.len() {
@@ -205,15 +211,161 @@ fn xml_document(doc: &Document, names: &NamePool, output: &Output, s: &mut Strin
 
 /// How xmlNodeDumpOutput writes one node. `format` is `indent="yes"`;
 /// `level` is the depth below the subtree root, which gets no indentation.
+/// `xhtml` is the charset for the XHTML serializer's Content-Type meta, when
+/// writing XHTML.
 #[derive(Copy, Clone)]
-struct Fmt {
+struct Fmt<'a> {
     hex_non_ascii: bool,
     format: bool,
     level: usize,
     root: bool,
+    xhtml: Option<&'a str>,
 }
 
-impl Fmt {
+/// xmlIsXHTML: the DOCTYPE's public or system ID is XHTML 1.0's.
+fn is_xhtml(output: &Output) -> bool {
+    const PUBLIC: [&str; 3] = [
+        "-//W3C//DTD XHTML 1.0 Strict//EN",
+        "-//W3C//DTD XHTML 1.0 Frameset//EN",
+        "-//W3C//DTD XHTML 1.0 Transitional//EN",
+    ];
+    const SYSTEM: [&str; 3] = [
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd",
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd",
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd",
+    ];
+    output
+        .doctype_public
+        .as_deref()
+        .is_some_and(|p| PUBLIC.contains(&p))
+        || output
+            .doctype_system
+            .as_deref()
+            .is_some_and(|s| SYSTEM.contains(&s))
+}
+
+const XHTML_NS: &str = "http://www.w3.org/1999/xhtml";
+
+/// xhtmlIsEmpty: an XHTML element written as `<br />` when it has no
+/// children.
+fn xhtml_is_empty(doc: &Document, names: &NamePool, id: NodeId, name: QName) -> bool {
+    if name.ns.is_some_and(|ns| names.str(ns) != XHTML_NS) || doc.first_child(id).is_some() {
+        return false;
+    }
+    matches!(
+        names.str(name.local),
+        "area"
+            | "br"
+            | "base"
+            | "basefont"
+            | "col"
+            | "frame"
+            | "hr"
+            | "img"
+            | "input"
+            | "isindex"
+            | "link"
+            | "meta"
+            | "param"
+    )
+}
+
+/// The XHTML serializer's Content-Type check: a `head` under the root
+/// `html` without a `meta http-equiv="Content-Type"` gets one.
+fn xhtml_needs_meta(doc: &Document, names: &NamePool, id: NodeId, name: QName) -> bool {
+    let Some(parent) = doc.parent(id) else {
+        return false;
+    };
+    let parent_is_root_html = doc.parent(parent) == Some(doc.root())
+        && doc
+            .name(parent)
+            .is_some_and(|q| names.str(q.local) == "html");
+    if names.str(name.local) != "head" || !parent_is_root_html {
+        return false;
+    }
+    !doc.children(id).any(|c| {
+        doc.name(c).is_some_and(|q| names.str(q.local) == "meta")
+            && doc.attributes(c).any(|a| {
+                names.str(doc.name(a).unwrap().local) == "http-equiv"
+                    && doc
+                        .value(a)
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case("Content-Type")
+            })
+    })
+}
+
+/// xhtmlAttrListDumpOutput: attributes as in XML, but an empty boolean
+/// attribute takes its name as value, and `id` (from `name`, on some
+/// elements) and `lang`/`xml:lang` are added when only one of a pair is
+/// there.
+fn xhtml_attributes(doc: &Document, names: &NamePool, id: NodeId, f: Fmt, s: &mut String) {
+    let mut name_attr = None;
+    let mut has_id = false;
+    let mut lang = None;
+    let mut xml_lang = None;
+    for a in doc.attributes(id) {
+        let q = doc.name(a).unwrap();
+        let local = names.str(q.local);
+        let mut value = doc.value(a).unwrap_or("");
+        if q.ns.is_none() && local == "id" {
+            has_id = true;
+        } else if q.ns.is_none() && local == "name" {
+            name_attr = Some(value);
+        } else if q.ns.is_none() && local == "lang" {
+            lang = Some(value);
+        } else if q.ns.is_some()
+            && local == "lang"
+            && q.prefix.is_some_and(|p| names.str(p) == "xml")
+        {
+            xml_lang = Some(value);
+        } else if q.ns.is_none() && value.is_empty() && html::is_boolean(local) {
+            value = local;
+        }
+        s.push(' ');
+        push_qname(names, q, s);
+        s.push_str("=\"");
+        escape_attr(value, f.hex_non_ascii, s);
+        s.push('"');
+    }
+    let element = names.str(doc.name(id).unwrap().local);
+    if let Some(v) = name_attr
+        && !has_id
+        && matches!(
+            element,
+            "a" | "p" | "div" | "img" | "map" | "applet" | "form" | "frame" | "iframe"
+        )
+    {
+        s.push_str(" id=\"");
+        escape_attr(v, f.hex_non_ascii, s);
+        s.push('"');
+    }
+    match (lang, xml_lang) {
+        (Some(v), None) => {
+            s.push_str(" xml:lang=\"");
+            escape_attr(v, f.hex_non_ascii, s);
+            s.push('"');
+        }
+        (None, Some(v)) => {
+            s.push_str(" lang=\"");
+            escape_attr(v, f.hex_non_ascii, s);
+            s.push('"');
+        }
+        _ => {}
+    }
+}
+
+fn push_xhtml_meta(charset: &str, f: Fmt, s: &mut String) {
+    if f.format {
+        s.push('\n');
+        s.extend(std::iter::repeat_n(' ', 2 * (f.level + 1).min(30)));
+    }
+    s.push_str("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=");
+    s.push_str(charset);
+    s.push_str("\" />");
+}
+
+impl Fmt<'_> {
     /// libxml2 indents two spaces per level, up to 60.
     fn indent(&self, s: &mut String) {
         if self.format && !self.root {
@@ -237,15 +389,51 @@ fn node(doc: &Document, names: &NamePool, id: NodeId, f: Fmt, s: &mut String) {
                 }
                 html::quoted(names.str(d.uri), s);
             }
-            for a in doc.attributes(id) {
-                s.push(' ');
-                push_qname(names, doc.name(a).unwrap(), s);
-                s.push_str("=\"");
-                escape_attr(doc.value(a).unwrap_or(""), hex_non_ascii, s);
-                s.push('"');
+            // XHTML: an unprefixed, undeclared html element gets the XHTML
+            // namespace (XHTML 1.0, A.3.1.1).
+            if f.xhtml.is_some()
+                && name.ns.is_none()
+                && names.str(name.local) == "html"
+                && doc.ns_decls(id).is_empty()
+            {
+                s.push_str(" xmlns=\"http://www.w3.org/1999/xhtml\"");
             }
+            if f.xhtml.is_some() {
+                xhtml_attributes(doc, names, id, f, s);
+            } else {
+                for a in doc.attributes(id) {
+                    s.push(' ');
+                    push_qname(names, doc.name(a).unwrap(), s);
+                    s.push_str("=\"");
+                    escape_attr(doc.value(a).unwrap_or(""), hex_non_ascii, s);
+                    s.push('"');
+                }
+            }
+            let meta = f.xhtml.filter(|_| xhtml_needs_meta(doc, names, id, name));
             if doc.first_child(id).is_none() {
-                s.push_str("/>");
+                match f.xhtml {
+                    None => s.push_str("/>"),
+                    // C.2: `<br />`; C.3: other empty elements in full.
+                    Some(_)
+                        if name.prefix.is_none()
+                            && meta.is_none()
+                            && xhtml_is_empty(doc, names, id, name) =>
+                    {
+                        s.push_str(" />")
+                    }
+                    Some(_) => {
+                        s.push('>');
+                        if let Some(charset) = meta {
+                            push_xhtml_meta(charset, f, s);
+                            if f.format {
+                                s.push('\n');
+                            }
+                        }
+                        s.push_str("</");
+                        push_qname(names, name, s);
+                        s.push('>');
+                    }
+                }
                 return;
             }
             // Any text child turns formatting off for this element's subtree,
@@ -255,6 +443,9 @@ fn node(doc: &Document, names: &NamePool, id: NodeId, f: Fmt, s: &mut String) {
                     .children(id)
                     .any(|c| matches!(doc.kind(c), NodeKind::Text(_)));
             s.push('>');
+            if let Some(charset) = meta {
+                push_xhtml_meta(charset, f, s);
+            }
             if format {
                 s.push('\n');
             }
@@ -293,8 +484,11 @@ fn node(doc: &Document, names: &NamePool, id: NodeId, f: Fmt, s: &mut String) {
             // libxslt makes an empty comment with no content, which libxml2
             // doesn't write at all.
             let text = doc.value(id).unwrap_or("");
-            // The indentation comes before libxml2 checks for content.
-            f.indent(s);
+            // The indentation comes before libxml2 checks for content. The
+            // XHTML serializer indents only elements.
+            if f.xhtml.is_none() {
+                f.indent(s);
+            }
             if !text.is_empty() {
                 s.push_str("<!--");
                 s.push_str(text);
@@ -302,7 +496,9 @@ fn node(doc: &Document, names: &NamePool, id: NodeId, f: Fmt, s: &mut String) {
             }
         }
         NodeKind::Pi { target, .. } => {
-            f.indent(s);
+            if f.xhtml.is_none() {
+                f.indent(s);
+            }
             s.push_str("<?");
             s.push_str(names.str(target));
             let data = doc.value(id).unwrap_or("");
