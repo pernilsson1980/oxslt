@@ -1,0 +1,4 @@
+undeclared: hello
+expr: 3
+shadowed: stylesheet variable
+declared: given

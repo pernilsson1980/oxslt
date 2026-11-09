@@ -28,12 +28,15 @@ const USAGE: &str = "Usage: oxslt [options] stylesheet file [file ...]
       --nonet               refuse to fetch DTDs or entities over the network
       --novalid             skip the DTD loading phase
       --path paths          directories to search for DTDs and entities
+      --xinclude            do XInclude processing on document input
       --version             print the version
 ";
 
 #[derive(Default)]
 struct Options {
     output: Option<PathBuf>,
+    /// `--xinclude`: process XIncludes in the inputs.
+    xinclude: bool,
     /// `--novalid`: no external DTD and no default attributes.
     novalid: bool,
     /// `--path`: directories to search when a DTD or entity fails to load.
@@ -90,6 +93,7 @@ fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32>
                 need(&mut it, &a, stderr)?;
             }
             "--novalid" | "-novalid" => o.novalid = true,
+            "--xinclude" | "-xinclude" => o.xinclude = true,
             // oxslt never uses the network, which is what --nonet asks for.
             "--nonet" | "-nonet" => {}
             "--version" | "-version" | "-V" => {
@@ -102,7 +106,9 @@ fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32>
             _ => o.files.push(PathBuf::from(a)),
         }
     }
-    if o.files.len() < 2 {
+    // A stylesheet alone is allowed: xsltproc compiles it and transforms
+    // nothing. Builds use that to check that a stylesheet is installed.
+    if o.files.is_empty() {
         let _ = write!(stderr, "{USAGE}");
         return Err(exit::NO_ARGUMENT);
     }
@@ -159,27 +165,28 @@ pub fn run(
 fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: bool) -> i32 {
     let (style_path, inputs) = o.files.split_first().expect("checked in parse_args");
     let mut names = NamePool::new();
-    let style_bytes = match crate::catalog::read_file(std::path::Path::new(style_path)) {
+    // xsltproc's parser options: entities substituted, the DTD loaded and its
+    // defaults applied, unless --novalid. Catalogs come from the environment.
+    let options = ParseOptions {
+        load_dtd: !o.novalid,
+        dtd_attributes: !o.novalid,
+        xinclude: o.xinclude,
+        ..ParseOptions::default()
+    };
+    let loader = ResourceLoader::from_env(o.paths.clone());
+    let (style_bytes, style_loc) = match open_argument(&loader, style_path) {
         Ok(b) => b,
         Err(e) => {
             let _ = writeln!(err, "cannot parse {}: {e}", display(style_path));
             return exit::STYLESHEET_PARSE_FAILED;
         }
     };
-    // xsltproc's parser options: entities substituted, the DTD loaded and its
-    // defaults applied, unless --novalid. Catalogs come from the environment.
-    let options = ParseOptions {
-        load_dtd: !o.novalid,
-        dtd_attributes: !o.novalid,
-        ..ParseOptions::default()
-    };
-    let loader = ResourceLoader::from_env(o.paths.clone());
     let style_doc = match parse_with(
         &style_bytes,
         &mut names,
         &options,
         &loader,
-        &Some(style_path.clone()),
+        &Some(style_loc.clone()),
     ) {
         Ok(p) => {
             for w in &p.warnings {
@@ -191,7 +198,7 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
             let _ = writeln!(
                 err,
                 "{}:{}: parser error : {}\ncannot parse {}",
-                display(style_path),
+                display(&style_loc),
                 e.line,
                 e.message,
                 display(style_path)
@@ -202,7 +209,7 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
     let mut include_warnings = Vec::new();
     let compiled = compile_with(
         &style_doc,
-        style_path,
+        &style_loc,
         &mut names,
         &loader,
         &options,
@@ -221,13 +228,19 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
             for e in errors {
                 let _ = writeln!(err, "{e}");
             }
-            return exit::STYLESHEET_ERROR;
+            // xsltproc reports compile errors in the exit code only while
+            // processing an input; with none it exits 0.
+            return if inputs.is_empty() {
+                exit::SUCCESS
+            } else {
+                exit::STYLESHEET_ERROR
+            };
         }
     };
 
     let mut code = exit::SUCCESS;
     for input in inputs {
-        let bytes = match crate::catalog::read_file(std::path::Path::new(input)) {
+        let (bytes, input_loc) = match open_argument(&loader, input) {
             Ok(b) => b,
             Err(e) => {
                 let _ = writeln!(err, "unable to parse {}: {e}", display(input));
@@ -235,7 +248,13 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
                 continue;
             }
         };
-        let source = match parse_with(&bytes, &mut names, &options, &loader, &Some(input.clone())) {
+        let source = match parse_with(
+            &bytes,
+            &mut names,
+            &options,
+            &loader,
+            &Some(input_loc.clone()),
+        ) {
             Ok(p) => {
                 for w in &p.warnings {
                     let _ = writeln!(err, "warning: {w}");
@@ -246,7 +265,7 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
                 let _ = writeln!(
                     err,
                     "{}:{}: parser error : {}\nunable to parse {}",
-                    display(input),
+                    display(&input_loc),
                     e.line,
                     e.message,
                     display(input)
@@ -260,7 +279,20 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
             Err(c) => return c,
         };
         let mut source = source;
-        source.url = Some(input.to_string_lossy().into_owned());
+        source.url = Some(input_loc.to_string_lossy().into_owned());
+        // xsltproc processes XIncludes before transforming; any XInclude
+        // error skips the input with exit 6, and no message of its own.
+        if options.xinclude {
+            let processed = crate::xinclude::process(source, &mut names, &loader, &options);
+            for m in processed.warnings.iter().chain(&processed.errors) {
+                let _ = writeln!(err, "{m}");
+            }
+            if !processed.errors.is_empty() {
+                code = exit::DOCUMENT_ERROR;
+                continue;
+            }
+            source = processed.document;
+        }
         match Transform::run(
             &stylesheet,
             &mut names,
@@ -295,6 +327,21 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
         std::mem::forget(names);
     }
     code
+}
+
+/// Opens a stylesheet or input named on the command line as xsltproc does,
+/// through the entity loader: a name the catalogs map (such as DocBook's
+/// `http://docbook.sourceforge.net/release/xsl/current/...` URLs) opens the
+/// local copy, and that copy's path becomes the document's location, the
+/// base for its includes. Other names are opened as given.
+fn open_argument(
+    loader: &ResourceLoader,
+    arg: &std::path::Path,
+) -> std::io::Result<(Vec<u8>, std::path::PathBuf)> {
+    let path = loader
+        .locate(None, &arg.to_string_lossy(), &None)
+        .unwrap_or_else(|| arg.to_path_buf());
+    Ok((crate::catalog::read_file(&path)?, path))
 }
 
 fn global_params(

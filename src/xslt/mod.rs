@@ -4,6 +4,7 @@
 //! [`exec::Transform`] runs it. Result trees are built by [`output`].
 
 pub mod compile;
+pub mod dates;
 pub mod exec;
 pub mod exslt;
 pub mod ir;

@@ -1,6 +1,7 @@
 //! EXSLT extension functions, as libexslt 0.8.20 (with libxslt 1.1.35)
-//! implements them: common, sets, strings and math, and the `node-set`
-//! functions libxslt registers in other namespaces.
+//! implements them: common, sets, strings and math, most of dates and
+//! times (`super::dates`), and the `node-set` functions libxslt registers in
+//! other namespaces.
 //!
 //! `function-available()` answers for every function xsltproc registers
 //! (`AVAILABLE`), including some oxslt doesn't implement yet; those fail
@@ -136,6 +137,9 @@ pub fn call(
         (SETS, _) => sets(local, args, env),
         (STRINGS, _) => strings(local, args, env, token),
         (MATH, _) => math(local, args, env),
+        (DATES, _) if super::dates::IMPLEMENTED.contains(&local) => {
+            super::dates::call(local, args, env).map(Outcome::Value)
+        }
         _ => Err(XPathError::runtime(format!(
             "{{{ns}}}{local}() isn't implemented in oxslt yet"
         ))),

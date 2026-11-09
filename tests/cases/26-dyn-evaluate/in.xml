@@ -1,0 +1,6 @@
+<r xmlns:p="urn:p">
+  <item n="1" cat="a">one</item>
+  <item n="2" cat="b">two</item>
+  <item n="3" cat="a">three</item>
+  <p:thing>namespaced</p:thing>
+</r>

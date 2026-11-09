@@ -46,7 +46,15 @@ pub struct PatternError(pub String);
 
 /// Converts a compiled XPath expression into a pattern, rejecting anything
 /// patterns don't allow.
-pub fn from_expr(expr: Expr) -> Result<Pattern, PatternError> {
+/// `allow_variables`: xsl:number's count and from patterns may use
+/// variables; template and key patterns may not (libxslt compiles those
+/// with XML_XPATH_NOVAR).
+pub fn from_expr(expr: Expr, allow_variables: bool) -> Result<Pattern, PatternError> {
+    // Variables are forbidden in template and key patterns (xsltproc:
+    // "Forbidden variable").
+    if !allow_variables && contains_variable(&expr) {
+        return Err(PatternError("Forbidden variable in pattern".into()));
+    }
     let mut paths = Vec::new();
     flatten_union(expr, &mut paths)?;
     let alternatives = paths
@@ -69,7 +77,7 @@ fn flatten_union(expr: Expr, out: &mut Vec<Expr>) -> Result<(), PatternError> {
     }
 }
 
-fn contains_variable(e: &Expr) -> bool {
+pub fn contains_variable(e: &Expr) -> bool {
     match e {
         Expr::Variable(_) => true,
         Expr::Or(a, b)
@@ -105,10 +113,6 @@ fn is_id_or_key(e: &Expr) -> bool {
 }
 
 fn alternative(expr: Expr) -> Result<Alternative, PatternError> {
-    // Variables are forbidden in patterns (xsltproc: "Forbidden variable").
-    if contains_variable(&expr) {
-        return Err(PatternError("Forbidden variable in pattern".into()));
-    }
     let (anchor, steps) = match expr {
         Expr::Path(Path { start, steps }) => match start {
             PathStart::Root => (Anchor::Root, steps),

@@ -241,6 +241,13 @@ fn malformed_documents_are_rejected_with_positions() {
             .message
             .contains("Attribute a redefined")
     );
+    for comment in [
+        &b"<d><!-- a -- b --></d>"[..],
+        b"<d><!-- a ---></d>",
+        b"<!-- a -- b --><d/>",
+    ] {
+        assert!(err(comment).message.contains("Double hyphen"));
+    }
     assert_eq!(
         err(b"<d>a ]]> b</d>").message,
         "Sequence ']]>' not allowed in content"

@@ -1,0 +1,21 @@
+# Debian bookworm source packages built with the comparing xsltproc wrapper.
+# DocBook man pages
+shadow
+pam
+kmod
+iputils
+dracut
+bubblewrap
+xdg-user-dirs
+moreutils
+libdrm
+talloc
+# man pages and HTML documentation
+dbus
+apt
+wayland
+xorgproto
+bzip2
+# xsltproc generating data, not documentation
+xkeyboard-config
+mobile-broadband-provider-info

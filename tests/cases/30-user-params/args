@@ -1,0 +1,12 @@
+--stringparam
+undeclared
+hello
+--param
+expr
+1 + 2
+--stringparam
+shadowed
+ignored
+--stringparam
+declared
+given

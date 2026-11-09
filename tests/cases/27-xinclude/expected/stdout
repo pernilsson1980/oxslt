@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<report>
+<book xmlns:xi="http://www.w3.org/2001/XInclude">
+  <title>XInclude details</title>
+  <!-- top-level comment --><chapter id="c1">A chapter</chapter>
+  <part xml:base="sub/part.xml"><leaf xml:base="deeper/elsewhere/">leaf</leaf>a note
+with&#13;
+lines</part>
+  <p id="t">before a note
+with&#13;
+lines after</p>
+  <p id="latin">café</p>
+  <e xml:id="second">second</e>
+  <e>third</e>
+  <part xmlns="urn:parts" n="2" xml:base="sub/parts.xml">two</part><part xmlns="urn:parts" n="3" xml:base="sub/parts.xml">three</part>
+  <keep>kept</keep>
+  fallback <!-- top-level comment --><chapter id="c1">A chapter</chapter> text
+  <keep>kept</keep>
+</book>
+text nodes in #t: 0
+bases: part=sub/part.xml,leaf=deeper/elsewhere/,part=sub/parts.xml,part=sub/parts.xml,
+ids: 0,1
+</report>

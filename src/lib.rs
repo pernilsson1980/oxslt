@@ -11,6 +11,7 @@ pub mod parse;
 pub mod serialize;
 pub mod tree;
 pub mod uri;
+pub mod xinclude;
 pub mod xpath;
 pub mod xslt;
 

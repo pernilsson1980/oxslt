@@ -127,6 +127,8 @@ pub struct Transform<'a> {
     global_defs: SymMap<Name, usize>,
     /// Globals an evaluation asked for before they were computed.
     wanted_globals: RefCell<Vec<Name>>,
+    /// dyn:evaluate's expressions, compiled between evaluations.
+    dyn_exprs: RefCell<DynExprs>,
     /// Globals being computed, to catch a circular definition.
     computing: Vec<Name>,
     /// The error of a global computed on demand inside an evaluation.
@@ -216,6 +218,7 @@ impl<'a> Transform<'a> {
             globals: SymMap::default(),
             global_defs: SymMap::default(),
             wanted_globals: RefCell::new(Vec::new()),
+            dyn_exprs: RefCell::new(DynExprs::default()),
             computing: Vec::new(),
             global_error: RefCell::new(None),
             params: SymMap::default(),
@@ -246,13 +249,35 @@ impl<'a> Transform<'a> {
         }
         let root = NodeRef::new(0, t.docs[0].root());
         let focus = Focus::single(root);
-        t.params = params.into_iter().collect();
         t.global_defs = ss
             .globals
             .iter()
             .enumerate()
             .map(|(i, g)| (g.name, i))
             .collect();
+        // Command-line parameters, as libxslt's xsltProcessUserParamInternal
+        // treats them: ignored when a module declares an xsl:variable of
+        // that name; a declared xsl:param takes the value when computed;
+        // otherwise the parameter is a global of its own, evaluated now.
+        for (name, param) in params {
+            if ss.global_variable_names.contains(&name) {
+                continue;
+            }
+            if t.global_defs.contains_key(&name) {
+                t.params.insert(name, param);
+                continue;
+            }
+            let value = match param {
+                Param::String(s) => Value::String(s),
+                Param::Expr(e) => t.eval(&e, &focus, &Location::default()).map_err(|_| {
+                    ExecError::Runtime(format!(
+                        "Evaluating user parameter {} failed",
+                        t.names.str(name.1)
+                    ))
+                })?,
+            };
+            t.globals.insert(name, value);
+        }
         for g in &ss.globals {
             t.compute_global(g.name)?;
         }
@@ -300,6 +325,8 @@ impl<'a> Transform<'a> {
                     namespaces,
                     ss: self.ss,
                     warnings: &self.warnings,
+                    wanted_globals: &self.wanted_globals,
+                    dyn_exprs: &self.dyn_exprs,
                 };
                 let env = Env {
                     docs: &self.docs,
@@ -311,10 +338,18 @@ impl<'a> Transform<'a> {
             };
             let wanted = std::mem::take(&mut *self.wanted_globals.borrow_mut());
             let made = std::mem::take(&mut self.made.borrow_mut().pending);
-            if self.loads.borrow().pending.is_empty() && wanted.is_empty() && made.is_empty() {
+            let to_compile = std::mem::take(&mut self.dyn_exprs.borrow_mut().pending);
+            if self.loads.borrow().pending.is_empty()
+                && wanted.is_empty()
+                && made.is_empty()
+                && to_compile.is_empty()
+            {
                 return result;
             }
             self.warnings.borrow_mut().truncate(warnings);
+            for key in to_compile {
+                self.compile_dynamic(key);
+            }
             self.load_pending();
             for (key, doc) in made {
                 self.docs.push(doc);
@@ -330,6 +365,26 @@ impl<'a> Transform<'a> {
                 }
             }
         }
+    }
+
+    /// Compiles a dyn:evaluate expression in its namespace context, which
+    /// may intern names; an evaluation can only read them.
+    fn compile_dynamic(&mut self, key: (String, Vec<Binding>)) {
+        let prefixes: Vec<(String, crate::tree::Sym)> = key
+            .1
+            .iter()
+            .filter_map(|&(p, u)| p.map(|p| (self.names.str(p).to_string(), u)))
+            .collect();
+        let resolve = |p: &str| {
+            if p == "xml" {
+                return Some(NamePool::XML_NS);
+            }
+            prefixes.iter().find(|(q, _)| q == p).map(|&(_, u)| u)
+        };
+        let compiled = xpath::compile(&key.0, self.names, &resolve)
+            .map(Rc::new)
+            .map_err(|e| format!("XPath error : {e}"));
+        self.dyn_exprs.borrow_mut().compiled.insert(key, compiled);
     }
 
     /// Computes a global variable or parameter, as libxslt does when it's
@@ -398,12 +453,30 @@ impl<'a> Transform<'a> {
             .loader
             .read_document(url, &None)
             .map_err(|e| format!("I/O warning : {e}"))?;
-        let parsed = parse_with(&bytes, self.names, self.options, self.loader, &Some(path))
-            .map_err(|e| format!("{url}:{}: parser error : {}", e.line, e.message))?;
+        let parsed = parse_with(
+            &bytes,
+            self.names,
+            self.options,
+            self.loader,
+            &Some(path.clone()),
+        )
+        .map_err(|e| format!("{url}:{}: parser error : {}", e.line, e.message))?;
         for w in parsed.warnings {
             self.warnings.borrow_mut().push(format!("warning: {w}"));
         }
-        Ok(parsed.document)
+        let mut document = parsed.document;
+        // With --xinclude, libxslt processes XIncludes in loaded documents
+        // too, and ignores whether that failed.
+        if self.options.xinclude {
+            document.url = Some(path.to_string_lossy().into_owned());
+            let processed =
+                crate::xinclude::process(document, self.names, self.loader, self.options);
+            for m in processed.warnings.iter().chain(&processed.errors) {
+                self.warnings.borrow_mut().push(m.clone());
+            }
+            document = processed.document;
+        }
+        Ok(document)
     }
 
     fn eval(&mut self, e: &Expr, focus: &Focus, loc: &Location) -> R<Value> {
@@ -1384,6 +1457,8 @@ impl<'a> Transform<'a> {
             namespaces: &[],
             ss: self.ss,
             warnings: &self.warnings,
+            wanted_globals: &self.wanted_globals,
+            dyn_exprs: &self.dyn_exprs,
         };
         let env = Env {
             docs: &self.docs,
@@ -1723,6 +1798,16 @@ struct XsltFunctions<'a> {
     namespaces: &'a [Binding],
     ss: &'a Stylesheet,
     warnings: &'a RefCell<Vec<String>>,
+    wanted_globals: &'a RefCell<Vec<Name>>,
+    dyn_exprs: &'a RefCell<DynExprs>,
+}
+
+/// dyn:evaluate's expressions by text and namespace context: compiled, or
+/// the compile error; and those an evaluation asked for.
+#[derive(Default)]
+struct DynExprs {
+    compiled: HashMap<(String, Vec<Binding>), Result<Rc<Expr>, String>>,
+    pending: Vec<(String, Vec<Binding>)>,
 }
 
 /// A QName from a string, in the {uri}local form the compiler gives
@@ -1742,6 +1827,54 @@ fn runtime_qname(qname: &str, names: &NamePool) -> Option<Name> {
 }
 
 impl XsltFunctions<'_> {
+    /// dyn:evaluate (libexslt's exsltDynEvaluateFunction): the string
+    /// compiled as XPath in the instruction's namespace context and
+    /// evaluated in the current context. An empty string, or one that
+    /// doesn't compile or evaluate, gives an empty node-set and an error
+    /// message, not a failure. Requests to load, compute or compile
+    /// something first, and a spent budget, still fail, so the evaluation
+    /// runs again.
+    fn dyn_evaluate(&self, args: &[Value], env: &Env, focus: &Focus) -> Result<Value, XPathError> {
+        let [arg] = args else {
+            return Err(XPathError::runtime("Invalid number of arguments"));
+        };
+        let text = xpath::to_string(arg, env);
+        if text.is_empty() {
+            return Ok(Value::NodeSet(Vec::new()));
+        }
+        let key = (text, self.namespaces.to_vec());
+        let compiled = self.dyn_exprs.borrow().compiled.get(&key).cloned();
+        let unable = |detail: &str| {
+            self.warnings.borrow_mut().push(format!(
+                "{detail}\ndyn:evaluate() : unable to evaluate expression '{}'",
+                key.0
+            ));
+            Ok(Value::NodeSet(Vec::new()))
+        };
+        match compiled {
+            None => {
+                self.dyn_exprs.borrow_mut().pending.push(key);
+                Err(XPathError::runtime("dyn:evaluate() : compiling"))
+            }
+            Some(Err(message)) => unable(&message),
+            Some(Ok(expr)) => match xpath::evaluate(&expr, env, focus) {
+                Ok(v) => Ok(v),
+                Err(e) if self.must_retry() => Err(e),
+                Err(e) => unable(&e.to_string()),
+            },
+        }
+    }
+
+    /// Whether a failed evaluation asked for something to be done first,
+    /// or ran out of budget: errors dyn:evaluate mustn't swallow.
+    fn must_retry(&self) -> bool {
+        !self.loads.borrow().pending.is_empty()
+            || !self.made.borrow().pending.is_empty()
+            || !self.wanted_globals.borrow().is_empty()
+            || !self.dyn_exprs.borrow().pending.is_empty()
+            || self.budget.exceeded.borrow().is_some()
+    }
+
     /// The index of key `name` over document `doc`. As libxslt does
     /// (xsltInitAllDocKeys), the first lookup on a document indexes every
     /// key there, in `ss.key_order`. That's visible: a key whose `use`
@@ -1807,6 +1940,8 @@ impl XsltFunctions<'_> {
                     namespaces: self.namespaces,
                     ss: self.ss,
                     warnings: self.warnings,
+                    wanted_globals: self.wanted_globals,
+                    dyn_exprs: self.dyn_exprs,
                 };
                 let inner = Env {
                     docs: env.docs,
@@ -1876,8 +2011,13 @@ impl XsltFunctions<'_> {
             .and_then(|ns| ns.first())
             .and_then(|&n| self.node_base(n, env));
         let mut out = Vec::new();
+        // A result tree fragment is a string to libxslt's document()
+        // (XPATH_XSLT_TREE isn't XPATH_NODESET), so it's resolved against
+        // the instruction, not the fragment. DocBook's man pages depend on
+        // it: document($uri) with $uri built by xsl:with-param content.
+        let fragment = |ns: &[NodeRef]| matches!(ns, [n] if n.ns == 0 && env.doc(*n).fragment && n.node == env.doc(*n).root());
         match &args[0] {
-            Value::NodeSet(ns) => {
+            Value::NodeSet(ns) if !fragment(ns) => {
                 for &n in ns {
                     let base = match second {
                         Some(_) => given_base.clone(),
@@ -2015,6 +2155,9 @@ impl Functions for XsltFunctions<'_> {
     ) -> Option<Result<Value, XPathError>> {
         if let Some(ns) = name.0 {
             let local = env.names.str(name.1);
+            if env.names.str(ns) == exslt::DYNAMIC && local == "evaluate" {
+                return Some(self.dyn_evaluate(&args, env, focus));
+            }
             if env.names.str(ns) == exslt::SAXON {
                 match local {
                     // libexslt: the URL of the context's document.
@@ -2424,7 +2567,7 @@ mod tests {
         ];
         for (pattern, want) in cases {
             let expr = xpath::compile(pattern, &mut names, &resolve).unwrap();
-            let p = super::super::pattern::from_expr(expr).unwrap();
+            let p = super::super::pattern::from_expr(expr, false).unwrap();
             let alt = &p.alternatives[0];
             let got: Vec<bool> = keys.iter().map(|&k| could_match(alt, k)).collect();
             assert_eq!(got, want.to_vec(), "{pattern}");

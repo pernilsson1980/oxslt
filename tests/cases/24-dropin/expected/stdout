@@ -1,0 +1,3 @@
+fragment uri: 1:found sub/deeper/leaf.xml
+string uri: 1:found sub/deeper/leaf.xml
+number with variables: 1,1,2,3,

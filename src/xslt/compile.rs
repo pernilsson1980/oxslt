@@ -92,6 +92,7 @@ pub fn compile_with(
         errors: Vec::new(),
         aliases: HashMap::new(),
         including: vec![file.to_path_buf()],
+        leaked_exclusions: Vec::new(),
         precedence: 0,
         modules: vec![Vec::new()],
         global_modules: Vec::new(),
@@ -136,6 +137,12 @@ struct Compiler<'n> {
     aliases: HashMap<Sym, Binding>,
     /// Files being compiled, to detect include and import cycles.
     including: Vec<PathBuf>,
+    /// URIs excluded by the top-level element of every module compiled so
+    /// far in this import unit. libxslt pushes them onto the stylesheet's
+    /// exclusion list when it starts a module and never pops them, so an
+    /// included module's exclude-result-prefixes also applies to the
+    /// including module's later templates. Each xsl:import starts afresh.
+    leaked_exclusions: Vec<Sym>,
     /// The module being compiled. While compiling, every `precedence`
     /// field holds a module number; `assign_precedence` turns them into
     /// import precedences once the import tree is known.
@@ -500,6 +507,7 @@ impl Compiler<'_> {
     /// on `el`, its ancestors and the `xsl:stylesheet` element.
     fn excluded(&self, d: &Doc, el: NodeId) -> HashSet<Sym> {
         let mut out = HashSet::from([self.xslt]);
+        out.extend(self.leaked_exclusions.iter().copied());
         let mut cur = Some(el);
         while let Some(e) = cur {
             if matches!(d.doc.kind(e), NodeKind::Element { .. }) {
@@ -587,6 +595,25 @@ impl Compiler<'_> {
             space_memo: Default::default(),
         };
 
+        // The module's own exclusions join the import unit's list
+        // (xsltParseStylesheetExcludePrefix on the document element).
+        let own = if self.is_xslt(doc, root) {
+            self.attr(doc, root, "exclude-result-prefixes")
+        } else {
+            self.xsl_attr(doc, root, "exclude-result-prefixes")
+        };
+        if let Some(prefixes) = own {
+            let scope = self.in_scope(doc, root);
+            for p in prefixes.split_ascii_whitespace() {
+                let uri = if p == "#default" {
+                    scope.iter().find(|(q, _)| q.is_none()).map(|&(_, u)| u)
+                } else {
+                    self.resolve_prefix(&scope, p)
+                };
+                self.leaked_exclusions.extend(uri);
+            }
+        }
+
         if !self.is_xslt(doc, root) {
             // A simplified stylesheet: the literal result element is the
             // body of a template matching "/".
@@ -604,7 +631,7 @@ impl Compiler<'_> {
                         start: xpath::ast::PathStart::Root,
                         steps: vec![],
                     });
-                    let matches = pattern::from_expr(expr).ok();
+                    let matches = pattern::from_expr(expr, false).ok();
                     self.add_template(
                         Template {
                             matches,
@@ -737,6 +764,12 @@ impl Compiler<'_> {
         match local.as_str() {
             "template" => self.template(d, el),
             "variable" | "param" => {
+                if local == "variable"
+                    && let Some(name) = self.attr(d.doc, el, "name")
+                {
+                    let name = self.qname(d, el, name)?;
+                    self.ss.global_variable_names.insert(name);
+                }
                 let v = self.variable(d, el)?;
                 self.ss.globals.push(v);
                 self.global_modules.push(self.precedence);
@@ -784,7 +817,7 @@ impl Compiler<'_> {
             Some(m) => {
                 let expr = self.xpath(d, el, m)?;
                 Some(
-                    pattern::from_expr(expr)
+                    pattern::from_expr(expr, false)
                         .map_err(|e| self.error(d, el, format!("{} '{m}'", e.0)))?,
                 )
             }
@@ -1020,7 +1053,9 @@ impl Compiler<'_> {
         self.modules.push(Vec::new());
         self.modules[saved].push(module);
         self.precedence = module;
+        let saved_exclusions = std::mem::take(&mut self.leaked_exclusions);
         let result = self.load_module(d, el, false);
+        self.leaked_exclusions = saved_exclusions;
         self.precedence = saved;
         result
     }
@@ -1069,10 +1104,18 @@ impl Compiler<'_> {
         let name = self.qname(d, el, name)?;
         let m = self.required(d, el, "match")?;
         let expr = self.xpath(d, el, m)?;
-        let matches =
-            pattern::from_expr(expr).map_err(|e| self.error(d, el, format!("{} '{m}'", e.0)))?;
-        let use_ = self.required(d, el, "use")?;
-        let use_ = self.xpath(d, el, use_)?;
+        let matches = pattern::from_expr(expr, false)
+            .map_err(|e| self.error(d, el, format!("{} '{m}'", e.0)))?;
+        let use_text = self.required(d, el, "use")?;
+        let use_ = self.xpath(d, el, use_text)?;
+        // libxslt compiles `use` with XML_XPATH_NOVAR too.
+        if pattern::contains_variable(&use_) {
+            return Err(self.error(
+                d,
+                el,
+                format!("xsl:key : XPath compilation failed '{use_text}'"),
+            ));
+        }
         let location = self.location(d, el);
         self.ss.keys.entry(name).or_default().push(KeyDef {
             matches,
@@ -1683,7 +1726,7 @@ impl Compiler<'_> {
             match c.attr(d.doc, el, attr) {
                 Some(p) => {
                     let expr = c.xpath(d, el, p)?;
-                    let pat = pattern::from_expr(expr)
+                    let pat = pattern::from_expr(expr, true)
                         .map_err(|e| c.error(d, el, format!("{} '{p}'", e.0)))?;
                     Ok(Some(pat))
                 }

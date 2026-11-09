@@ -20,6 +20,10 @@ pub struct Stylesheet {
     /// Top-level variables and parameters, in an order where each one's
     /// dependencies come first.
     pub globals: Vec<Variable>,
+    /// Names declared by a top-level xsl:variable in any module. A
+    /// command-line parameter with one of these names is ignored, as libxslt
+    /// ignores it.
+    pub global_variable_names: std::collections::HashSet<Name>,
     pub output: Output,
     /// `xsl:strip-space` and `xsl:preserve-space` tests, in stylesheet order.
     pub space: Vec<SpaceRule>,

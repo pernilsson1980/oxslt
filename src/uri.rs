@@ -224,3 +224,181 @@ mod tests {
         assert_eq!(to_path("http://h/a.xml"), None);
     }
 }
+
+/// xmlURIEscapeStr: percent-escapes every byte that isn't unreserved
+/// (letters, digits, `-_.!~*'()`), `@` or in `keep`.
+pub fn escape_str(s: &str, keep: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        let unreserved = b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b);
+        if b == b'@' || unreserved || keep.as_bytes().contains(&b) {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// A path as libxml2's URI parser stores it: %XX escapes decoded.
+fn unescape(path: &str) -> String {
+    let b = path.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if b[i] == b'%'
+            && let (Some(h), Some(l)) = (
+                b.get(i + 1).and_then(|&c| hex(c)),
+                b.get(i + 2).and_then(|&c| hex(c)),
+            )
+        {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The host of an authority (`user@host:port`), as libxml2's `server`.
+fn server(authority: Option<&str>) -> Option<&str> {
+    authority.map(|a| {
+        let a = a.rsplit_once('@').map_or(a, |(_, h)| h);
+        a.split_once(':').map_or(a, |(h, _)| h)
+    })
+}
+
+/// xmlBuildRelativeURI: `uri` expressed relative to `base`. None where
+/// libxml2 returns NULL (an empty `uri`).
+pub fn build_relative(uri: &str, base: Option<&str>) -> Option<String> {
+    if uri.is_empty() {
+        return None;
+    }
+    // A reference already in "relative" form ('.') is taken as a path.
+    let (r_scheme, r_server, r_path) = if uri.starts_with('.') {
+        (None, None, Some(uri.to_string()))
+    } else {
+        let p = split(uri);
+        let path = (!p.path.is_empty() || p.authority.is_none()).then(|| unescape(p.path));
+        (
+            p.scheme,
+            server(p.authority),
+            path.filter(|s| !s.is_empty()),
+        )
+    };
+    let Some(base) = base.filter(|b| !b.is_empty()) else {
+        return Some(uri.to_string());
+    };
+    let (b_scheme, b_server, b_path) = if base.starts_with('.') {
+        (None, None, Some(base.to_string()))
+    } else {
+        let p = split(base);
+        (
+            p.scheme,
+            server(p.authority),
+            Some(unescape(p.path)).filter(|s| !s.is_empty()),
+        )
+    };
+    // A different scheme or server: the URI as it is.
+    if r_scheme.is_some() && (b_scheme.is_none() || b_scheme != r_scheme || b_server != r_server) {
+        return Some(uri.to_string());
+    }
+    if b_path == r_path {
+        return Some(String::new());
+    }
+    let Some(b_path) = b_path else {
+        return Some(r_path.unwrap_or_default());
+    };
+    let r_path = r_path.unwrap_or_else(|| "/".to_string());
+
+    let mut bptr = b_path.as_bytes();
+    let mut rptr = r_path.as_bytes();
+    if rptr.starts_with(b"./") {
+        rptr = &rptr[2..];
+    }
+    if bptr.starts_with(b"./") {
+        bptr = &bptr[2..];
+    } else if bptr.first() == Some(&b'/') && rptr.first() != Some(&b'/') {
+        bptr = &bptr[1..];
+    }
+    let at = |s: &[u8], i: usize| s.get(i).copied().unwrap_or(0);
+    let mut pos = 0;
+    while at(bptr, pos) == at(rptr, pos) && at(bptr, pos) != 0 {
+        pos += 1;
+    }
+    if at(bptr, pos) == at(rptr, pos) {
+        return Some(String::new());
+    }
+    // Back up to the last '/' in the URI: the start of its unique suffix.
+    let mut ix = pos;
+    while ix > 0 && rptr[ix - 1] != b'/' {
+        ix -= 1;
+    }
+    let uptr = &rptr[ix..];
+    // Count the base's '/' from the differing point.
+    let nbslash = bptr
+        .get(ix..)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|&&c| c == b'/')
+        .count();
+    if nbslash == 0 && uptr.is_empty() {
+        return Some("./".to_string());
+    }
+    let uptr = String::from_utf8_lossy(uptr);
+    if nbslash == 0 {
+        return Some(escape_str(&uptr, "/;&=+$,"));
+    }
+    let mut val = "../".repeat(nbslash);
+    match uptr.strip_prefix('/') {
+        Some(rest) => val.push_str(rest),
+        None => val.push_str(&uptr),
+    }
+    Some(escape_str(&val, "/;&=+$,"))
+}
+
+#[cfg(test)]
+mod relative_tests {
+    use super::build_relative;
+
+    /// libxml2's own examples (uri.c), and the cases XInclude meets.
+    #[test]
+    fn relative_uris() {
+        let b = Some("http://site1.com/docs/book1.html");
+        assert_eq!(
+            build_relative("http://site1.com/docs/pic1.gif", b).unwrap(),
+            "pic1.gif"
+        );
+        assert_eq!(
+            build_relative("http://site2.com/docs/pic1.gif", b).unwrap(),
+            "http://site2.com/docs/pic1.gif"
+        );
+        let b = Some("docs/book1.html");
+        assert_eq!(build_relative("docs/pic1.gif", b).unwrap(), "pic1.gif");
+        assert_eq!(
+            build_relative("docs/img/pic1.gif", b).unwrap(),
+            "img/pic1.gif"
+        );
+        assert_eq!(
+            build_relative("img/pic1.gif", b).unwrap(),
+            "../img/pic1.gif"
+        );
+        assert_eq!(
+            build_relative("/a/b/c.xml", Some("/a/main.xml")).unwrap(),
+            "b/c.xml"
+        );
+        assert_eq!(
+            build_relative("/a/c.xml", Some("/a/main.xml")).unwrap(),
+            "c.xml"
+        );
+        assert_eq!(
+            build_relative("/a/c.xml", Some("/a/main.xml")).unwrap(),
+            "c.xml"
+        );
+        assert_eq!(build_relative("x.xml", None).unwrap(), "x.xml");
+        assert_eq!(build_relative("", Some("a")), None);
+    }
+}

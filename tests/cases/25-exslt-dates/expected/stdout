@@ -1,0 +1,38 @@
+now: 2023-11-14T22:13:20Z | 2023-11-14 | 22:13:20 | 2023 | November | Tuesday | 46 | false
+available: truetrue
+[2024-02-29T13:05:09Z] date=2024-02-29Z time=13:05:09Z year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=9 wim=5 diy=60 dim=29 dowim=5 diw=5 dname=Thursday dabbr=Thu h=13 m=5 s=9
+[2024-02-29T13:05:09.25+05:30] date=2024-02-29+05:30 time=13:05:09.25+05:30 year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=9 wim=5 diy=60 dim=29 dowim=5 diw=5 dname=Thursday dabbr=Thu h=13 m=5 s=9.25
+[2024-02-29T03:05:09-00:45] date=2024-02-29-00:45 time=03:05:09-00:45 year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=9 wim=5 diy=60 dim=29 dowim=5 diw=5 dname=Thursday dabbr=Thu h=3 m=5 s=9
+[2023-12-31T23:59:59] date=2023-12-31 time=23:59:59 year=2023 leap=false mon=12 mname=December mabbr=Dec wiy=52 wim=5 diy=365 dim=31 dowim=5 diw=1 dname=Sunday dabbr=Sun h=23 m=59 s=59
+[2024-02-29] date=2024-02-29 time= year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=9 wim=5 diy=60 dim=29 dowim=5 diw=5 dname=Thursday dabbr=Thu h=NaN m=NaN s=NaN
+[2023-02-29] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2021-01-01] date=2021-01-01 time= year=2021 leap=false mon=1 mname=January mabbr=Jan wiy=53 wim=1 diy=1 dim=1 dowim=1 diw=6 dname=Friday dabbr=Fri h=NaN m=NaN s=NaN
+[2020-12-31] date=2020-12-31 time= year=2020 leap=true mon=12 mname=December mabbr=Dec wiy=53 wim=5 diy=366 dim=31 dowim=5 diw=5 dname=Thursday dabbr=Thu h=NaN m=NaN s=NaN
+[2027-01-03] date=2027-01-03 time= year=2027 leap=false mon=1 mname=January mabbr=Jan wiy=53 wim=1 diy=3 dim=3 dowim=1 diw=1 dname=Sunday dabbr=Sun h=NaN m=NaN s=NaN
+[2008-12-29] date=2008-12-29 time= year=2008 leap=true mon=12 mname=December mabbr=Dec wiy=1 wim=5 diy=364 dim=29 dowim=5 diw=2 dname=Monday dabbr=Mon h=NaN m=NaN s=NaN
+[2024-02] date= time= year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024] date= time= year=2024 leap=true mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[-0001-03-01] date=-0001-03-01 time= year=-1 leap=true mon=3 mname=March mabbr=Mar wiy=9 wim=1 diy=61 dim=1 dowim=1 diw=4 dname=Wednesday dabbr=Wed h=NaN m=NaN s=NaN
+[-0044-03-15] date=-0044-03-15 time= year=-44 leap=false mon=3 mname=March mabbr=Mar wiy=11 wim=3 diy=74 dim=15 dowim=3 diw=6 dname=Friday dabbr=Fri h=NaN m=NaN s=NaN
+[0001-01-01] date=0001-01-01 time= year=1 leap=false mon=1 mname=January mabbr=Jan wiy=1 wim=1 diy=1 dim=1 dowim=1 diw=2 dname=Monday dabbr=Mon h=NaN m=NaN s=NaN
+[12024-06-15] date=12024-06-15 time= year=12024 leap=true mon=6 mname=June mabbr=Jun wiy=24 wim=3 diy=167 dim=15 dowim=3 diw=7 dname=Saturday dabbr=Sat h=NaN m=NaN s=NaN
+[02024] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[0000] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[13:05:09] date= time=13:05:09 year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=13 m=5 s=9
+[13:05:09.5Z] date= time=13:05:09.5Z year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=13 m=5 s=9.5
+[09:07:03.125+01:00] date= time=09:07:03.125+01:00 year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=9 m=7 s=3.125
+[24:00:00] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[--02-29] date= time= year=NaN leap=NaN mon=2 mname=February mabbr=Feb wiy=NaN wim=NaN diy=NaN dim=29 dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[--11--] date= time= year=NaN leap=NaN mon=11 mname=November mabbr=Nov wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[---05] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=5 dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[---32] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-13-01] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29T13:05:09Zx] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29T13:05] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29 13:05:09] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29T13:05:09+14:00] date=2024-02-29+14:00 time=13:05:09+14:00 year=2024 leap=true mon=2 mname=February mabbr=Feb wiy=9 wim=5 diy=60 dim=29 dowim=5 diw=5 dname=Thursday dabbr=Thu h=13 m=5 s=9
+[2024-02-29T13:05:09+24:00] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29T13:05:9] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[2024-02-29T13:05:09.] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN
+[junk] date= time= year=NaN leap=NaN mon=NaN mname= mabbr= wiy=NaN wim=NaN diy=NaN dim=NaN dowim=NaN diw=NaN dname= dabbr= h=NaN m=NaN s=NaN

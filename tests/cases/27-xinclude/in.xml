@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<book xmlns:xi="http://www.w3.org/2001/XInclude">
+  <title>XInclude details</title>
+  <xi:include href="chapter.xml"/>
+  <xi:include href="sub/part.xml"/>
+  <p id="t">before <xi:include href="note.txt" parse="text"/> after</p>
+  <p id="latin"><xi:include href="latin1.txt" parse="text" encoding="ISO-8859-1"/></p>
+  <xi:include href="ids.xml" xpointer="second"/>
+  <xi:include href="ids.xml" xpointer="element(/1/3)"/>
+  <xi:include href="sub/parts.xml" xpointer="xmlns(p=urn:parts) xpointer(/p:parts/p:part[@n &gt; 1])"/>
+  <xi:include href="" xpointer="xpointer(//keep)"/>
+  <xi:include href="missing.xml"><xi:fallback>fallback <xi:include href="chapter.xml"/> text</xi:fallback></xi:include>
+  <keep>kept</keep>
+</book>

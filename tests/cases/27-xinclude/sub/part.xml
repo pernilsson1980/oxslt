@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<part xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="deeper/leaf.xml"/><xi:include href="../note.txt" parse="text"/></part>

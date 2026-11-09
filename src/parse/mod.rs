@@ -42,6 +42,9 @@ pub struct ParseOptions {
     /// Total characters entity expansion may produce, against "billion
     /// laughs" documents.
     pub max_entity_expansion: usize,
+    /// `--xinclude`: process XIncludes in inputs and in documents loaded by
+    /// `document()` (`crate::xinclude`). Not done by the parser itself.
+    pub xinclude: bool,
 }
 
 impl Default for ParseOptions {
@@ -54,6 +57,7 @@ impl Default for ParseOptions {
             load_dtd: true,
             dtd_attributes: true,
             max_entity_expansion: 10_000_000,
+            xinclude: false,
         }
     }
 }
@@ -406,6 +410,12 @@ impl Parser<'_> {
             Event::Comment(c) => {
                 if c.len() > self.options.max_text {
                     return Err(self.err(pos, "Comment too big found"));
+                }
+                // XML 1.0 section 2.5: no "--" inside, and no '-' at the end
+                // (as in "--->"). quick-xml doesn't check this.
+                if c.contains("--") || c.ends_with('-') {
+                    let start: String = c.chars().take(50).collect();
+                    return Err(self.err(pos, format!("Double hyphen within comment: <!--{start}")));
                 }
                 self.builder.comment(&c, line).map_err(tl)?
             }
