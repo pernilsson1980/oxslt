@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<out xmlns:own="urn:own" xmlns:keep="urn:keep" xmlns:alias="urn:real" xmlns:real="urn:real" xmlns:ns_1="urn:keep" t="top" shared="top" v="local" b="base" ns_1:plain="1"><nested/><alias:aliased alias:attr="x"/><keep:redeclared xmlns:keep="urn:other" keep:p="2"/><stripped><n1:t xmlns:n1="urn:n1" xmlns:n2="urn:n2"><a>a</a></n1:t><n2:t xmlns:n1="urn:n1" xmlns:n2="urn:n2"><b>b</b></n2:t></stripped></out>

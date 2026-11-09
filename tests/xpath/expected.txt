@@ -1,0 +1,884 @@
+[1] /
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: /121
+[2] /root
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121
+[3] /*/*
+= One bold text
+nodes: para/13 para/3 a:item/2 a:item/2 list/52 deep/9 mixed/7 nums/5 empty/0
+[4] //para
+= One bold text
+nodes: para/13 para/3
+[5] //para[2]
+= Two
+nodes: para/3
+[6] //para[last()]
+= Two
+nodes: para/3
+[7] //*[@n]
+= One bold text
+nodes: para/13 para/3
+[8] //@*
+= en-GB
+nodes: xml:lang/5 id/1 n/1 xml:id/2 n/1 a:att/1 xml:id/2 a:k/1 a:k/1 id/2 xml:lang/2
+[9] //@n
+= 1
+nodes: n/1 n/1
+[10] /root/@*
+= en-GB
+nodes: xml:lang/5 id/1
+[11] //node()[self::comment()]
+=  top comment 
+nodes: /13 /7
+[12] //comment()
+=  top comment 
+nodes: /13 /7
+[13] //processing-instruction()
+= first
+nodes: top-pi/5 pi-in/9
+[14] //processing-instruction('pi-in')
+= data here
+nodes: pi-in/9
+[15] /processing-instruction()
+= first
+nodes: top-pi/5
+[16] //text()[normalize-space()]
+= One 
+nodes: /4 /4 /5 /3 /2 /2 /3 /2 /4 /3 /7 /9 /7 /1 /1 /1 /1 /1
+[17] //a:item
+= A1
+nodes: a:item/2 a:item/2
+[18] //a:*
+= A1
+nodes: a:item/2 a:item/2
+[19] //d:entry
+= 3.5
+nodes: entry/3 entry/2 entry/4 entry/3 entry/0
+[20] //d:*
+= 
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+nodes: list/52 entry/3 entry/2 entry/4 entry/3 entry/0
+[21] //c:entry
+= c-entry
+nodes: c:entry/7
+[22] //entry
+= 
+nodes:
+[23] //*[local-name()='entry']
+= 3.5
+nodes: entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7
+[24] //z/ancestor::*
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 deep/9 x/9 y/9
+[25] //z/ancestor-or-self::*[1]
+= deep text
+nodes: z/9
+[26] //z/ancestor::*[1]
+= deep text
+nodes: y/9
+[27] //z/ancestor::*[last()]
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121
+[28] //para[1]/following-sibling::*
+= Two
+nodes: para/3 a:item/2 a:item/2 list/52 deep/9 mixed/7 nums/5 empty/0
+[29] //para[2]/preceding-sibling::*
+= One bold text
+nodes: para/13
+[30] //a:item[1]/following-sibling::*[2]
+= 
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+nodes: list/52
+[31] //a:item[2]/preceding-sibling::*[1]
+= A1
+nodes: a:item/2
+[32] //b/following::*
+= Two
+nodes: para/3 a:item/2 a:item/2 list/52 entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7 deep/9 x/9 y/9 z/9 mixed/7 nums/5 v/1 v/1 v/1 v/1 v/1 empty/0
+[33] //b/preceding::*
+= 
+nodes:
+[34] //y/following::node()[1]
+= 
+  
+nodes: /3
+[35] //y/preceding::*[1]
+= c-entry
+nodes: c:entry/7
+[36] //para[1]/@n/following::*
+= Two
+nodes: para/3 a:item/2 a:item/2 list/52 entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7 deep/9 x/9 y/9 z/9 mixed/7 nums/5 v/1 v/1 v/1 v/1 v/1 empty/0
+[37] //para[2]/@n/preceding::*
+= One bold text
+nodes: para/13 b/4
+[38] //para[1]/@n/parent::*
+= One bold text
+nodes: para/13
+[39] //para[1]/@n/ancestor::*
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 para/13
+[40] //para[1]/@n/following-sibling::*
+= 
+nodes:
+[41] //para/descendant::node()
+= One 
+nodes: /4 b/4 /4 /5 /3
+[42] //deep/descendant-or-self::*
+= deep text
+nodes: deep/9 x/9 y/9 z/9
+[43] //nums/v[position() > 2]
+= 3
+nodes: v/1 v/1 v/1
+[44] //nums/v[position() mod 2 = 0]
+= 2
+nodes: v/1 v/1
+[45] //nums/v[. > 2][2]
+= 4
+nodes: v/1
+[46] //nums/v[last() - 1]
+= 4
+nodes: v/1
+[47] (//nums/v)[2]
+= 2
+nodes: v/1
+[48] (//v | //para)[last()]
+= 5
+nodes: v/1
+[49] //v[3]/self::v
+= 3
+nodes: v/1
+[50] //v[3]/self::para
+= 
+nodes:
+[51] //v/..
+= 12345
+nodes: nums/5
+[52] //para/../..
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: /121
+[53] //z/../../..
+= deep text
+nodes: deep/9
+[54] //*[count(*) = 5]
+= 12345
+nodes: nums/5
+[55] //*[not(*)][not(text())]
+= 
+nodes: entry/0 empty/0
+[56] //list/namespace::*
+= 
+nodes:
+[57] //para[1]/namespace::*
+= http://www.w3.org/XML/1998/namespace
+nodes: xml/36 a/5
+[58] //list/namespace::d
+= 
+nodes:
+[59] //list/namespace::c
+= 
+nodes:
+[60] //list/c:entry/namespace::*
+= 
+nodes:
+[61] /root/namespace::*[name()='a']
+= urn:a
+nodes: a/5
+[62] id('p2')
+= Two
+nodes: para/3
+[63] id('p1 p2 nosuch')
+= One bold text
+nodes: para/13 para/3
+[64] id(//para/@xml:id)
+= One bold text
+nodes: para/13 para/3
+[65] //*[lang('en')]
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 para/13 b/4 para/3 a:item/2 a:item/2 list/52 entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7 deep/9 x/9 y/9 mixed/7 nums/5 v/1 v/1 v/1 v/1 v/1 empty/0
+[66] //*[lang('EN-gb')]
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 para/13 b/4 para/3 a:item/2 a:item/2 list/52 entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7 deep/9 x/9 y/9 mixed/7 nums/5 v/1 v/1 v/1 v/1 v/1 empty/0
+[67] //*[lang('sv')]
+= deep text
+nodes: z/9
+[68] //*[lang('e')]
+= 
+nodes:
+[69] //para | //a:item
+= One bold text
+nodes: para/13 para/3 a:item/2 a:item/2
+[70] //v[1] | //v[1]
+= 1
+nodes: v/1
+[71] //mixed/text()
+= a<b>c&d
+nodes: /7
+[72] //empty/node()
+= 
+nodes:
+[73] //*[@id]
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 z/9
+[74] /*/following::*
+= 
+nodes:
+[75] /root/para[@n = '2']/following-sibling::*[1]
+= A1
+nodes: a:item/2
+[76] string(/)
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+[77] string(/root/para)
+= One bold text
+[78] string(//mixed)
+= a<b>c&d
+[79] string(//nums)
+= 12345
+[80] string(//empty)
+= 
+[81] string(//@n)
+= 1
+[82] string(//list/namespace::c)
+= 
+[83] name(//a:item)
+= a:item
+[84] local-name(//a:item)
+= item
+[85] namespace-uri(//a:item)
+= urn:a
+[86] name(//para/@a:att)
+= a:att
+[87] name(//@xml:lang)
+= xml:lang
+[88] namespace-uri(//@xml:lang)
+= http://www.w3.org/XML/1998/namespace
+[89] name(//list)
+= 
+[90] namespace-uri(//list/*)
+= 
+[91] name(//comment())
+= 
+[92] name(//processing-instruction())
+= top-pi
+[93] local-name(//processing-instruction('pi-in'))
+= pi-in
+[94] name(//list/namespace::c)
+= 
+[95] name(//nothing)
+= 
+[96] name()
+= 
+[97] local-name(/)
+= 
+[98] name(//text())
+= 
+[99] 1
+= 1
+[100] -1
+= -1
+[101] 1.5
+= 1.5
+[102] .5
+= 0.5
+[103] 5.
+= 5
+[104] 0.1 + 0.2
+= 0.3
+[105] 1 div 3
+= 0.333333333333333
+[106] 2 div 3
+= 0.666666666666667
+[107] 10 div 4
+= 2.5
+[108] 1 div 0
+= Infinity
+[109] -1 div 0
+= -Infinity
+[110] 0 div 0
+= NaN
+[111] -(0 div 0)
+= NaN
+[112] 1e3
+= 1000
+[113] 1.5e-3
+= 0.0015
+[114] 123456789
+= 123456789
+[115] 1234567890
+= 1234567890
+[116] 2147483647
+= 2.147483647e+09
+[117] 2147483648
+= 2.147483648e+09
+[118] -2147483648
+= -2.147483648e+09
+[119] -2147483649
+= -2.147483649e+09
+[120] 1e9
+= 1000000000
+[121] 1e10
+= 1e+10
+[122] 999999999.5
+= 999999999.5
+[123] 0.00001
+= 0.00001
+[124] 0.000001
+= 1e-06
+[125] 0.0000123
+= 0.0000123
+[126] 1e21
+= 1e+21
+[127] 1e-7 * 3
+= 3e-07
+[128] 100000000000000000000
+= 1e+20
+[129] 123456.789
+= 123456.789
+[130] 3.14159265358979
+= 3.14159265358979
+[131] 1.23456789012345678
+= 1.234567890123457
+[132] -0.0
+= 0
+[133] 0 * -1
+= 0
+[134] 7 mod 3
+= 1
+[135] -7 mod 3
+= -1
+[136] 7 mod -3
+= 1
+[137] 7.5 mod 2
+= 1.5
+[138] 5 mod 0
+= NaN
+[139] 2 + 3 * 4
+= 14
+[140] (2 + 3) * 4
+= 20
+[141] 2 - - 3
+= 5
+[142] --3
+= 3
+[143] - - 3
+= 3
+[144] 10 - 3 - 2
+= 5
+[145] 2 * 3 div 4
+= 1.5
+[146] number('12')
+= 12
+[147] number(' 12 ')
+= 12
+[148] number('-1.5')
+= -1.5
+[149] number('1e2')
+= 100
+[150] number('+1')
+= NaN
+[151] number('1 2')
+= NaN
+[152] number('')
+= NaN
+[153] number('.')
+= NaN
+[154] number('abc')
+= NaN
+[155] number(true())
+= 1
+[156] number(false())
+= 0
+[157] number(//nums/v[3])
+= 3
+[158] number(//list/*[1])
+= NaN
+[159] number(//list/*[3])
+= NaN
+[160] sum(//nums/v)
+= 15
+[161] sum(//list/*)
+= 0
+[162] sum(//nothing)
+= 0
+[163] count(//*)
+= 25
+[164] count(//node())
+= 64
+[165] count(//@*)
+= 11
+[166] count(//namespace::*)
+= 64
+[167] count(//text())
+= 35
+[168] floor(2.5)
+= 2
+[169] floor(-2.5)
+= -3
+[170] ceiling(2.1)
+= 3
+[171] ceiling(-2.1)
+= -2
+[172] round(2.5)
+= 3
+[173] round(-2.5)
+= -2
+[174] round(-0.4)
+= 0
+[175] round(0.4)
+= 0
+[176] round(1 div 0)
+= Infinity
+[177] round(0 div 0)
+= NaN
+[178] round(3.49999)
+= 3
+[179] round(-3.5)
+= -3
+[180] last()
+= 1
+[181] position()
+= 1
+[182] concat('a', 'b', 'c')
+= abc
+[183] concat(1, true(), //para)
+= 1trueOne bold text
+[184] starts-with('abc', 'ab')
+= true
+[185] starts-with('abc', '')
+= true
+[186] contains('abc', 'bc')
+= true
+[187] contains('abc', 'x')
+= false
+[188] substring-before('a/b/c', '/')
+= a
+[189] substring-before('abc', 'x')
+= 
+[190] substring-before('abc', '')
+= 
+[191] substring-after('a/b/c', '/')
+= b/c
+[192] substring-after('abc', '')
+= abc
+[193] substring('12345', 2)
+= 2345
+[194] substring('12345', 2, 3)
+= 234
+[195] substring('12345', 1.5, 2.6)
+= 234
+[196] substring('12345', 0, 3)
+= 12
+[197] substring('12345', 0 div 0, 3)
+= 
+[198] substring('12345', 1, 0 div 0)
+= 
+[199] substring('12345', -42, 1 div 0)
+= 12345
+[200] substring('12345', -1 div 0, 1 div 0)
+= 
+[201] substring('12345', 3, -1)
+= 
+[202] substring('12345', 5)
+= 5
+[203] substring('12345', 6)
+= 
+[204] substring('åäöü', 2, 2)
+= äö
+[205] string-length('åäö')
+= 3
+[206] string-length('')
+= 0
+[207] string-length(//para)
+= 13
+[208] normalize-space('  a   b  c ')
+= a b c
+[209] normalize-space('')
+= 
+[210] normalize-space(//para)
+= One bold text
+[211] translate('abcabc', 'ab', 'X')
+= XcXc
+[212] translate('abc', 'abc', 'ABC')
+= ABC
+[213] translate('aaa', 'aa', 'xy')
+= xxx
+[214] translate('åbc', 'å', 'a')
+= abc
+[215] string(1 = 1)
+= true
+[216] string(1 < 2)
+= true
+[217] string('abc')
+= abc
+[218] string(0.5)
+= 0.5
+[219] string(-0)
+= 0
+[220] true()
+= true
+[221] false()
+= false
+[222] not(1)
+= false
+[223] not('')
+= true
+[224] not(//nothing)
+= true
+[225] boolean('0')
+= true
+[226] boolean(0)
+= false
+[227] boolean(0 div 0)
+= false
+[228] boolean(//para)
+= true
+[229] 1 = 1
+= true
+[230] 1 = '1'
+= true
+[231] '1' = 1.0
+= true
+[232] 'a' = 'a'
+= true
+[233] 'a' != 'b'
+= true
+[234] true() = 'x'
+= true
+[235] false() = ''
+= true
+[236] 1 = true()
+= true
+[237] 0 = false()
+= true
+[238] 2 > 1
+= true
+[239] '2' > '1'
+= true
+[240] 'abc' < 'abd'
+= false
+[241] true() > false()
+= true
+[242] //nums/v = 3
+= true
+[243] //nums/v != 3
+= true
+[244] //nums/v > 4
+= true
+[245] //nums/v < 1
+= false
+[246] 3 = //nums/v
+= true
+[247] 3 < //nums/v
+= true
+[248] '3' = //nums/v
+= true
+[249] //nums/v = '3'
+= true
+[250] //nums/v = //para/@n
+= true
+[251] //nums/v != //nums/v
+= true
+[252] //nums/v > //para/@n
+= true
+[253] //nothing = //nothing
+= false
+[254] //nothing != //nothing
+= false
+[255] //nothing = ''
+= false
+[256] //nothing != ''
+= false
+[257] //para = true()
+= true
+[258] //nothing = false()
+= true
+[259] //list/* = 'abc'
+= false
+[260] //list/* > 3
+= false
+[261] //list/* = -2
+= false
+[262] 1 < 2 < 3
+= true
+[263] 3 > 2 > 1
+= false
+[264] 1 = 1 = 1
+= true
+[265] 2 = 2 = 2
+= true
+[266] 1 and 0
+= false
+[267] 1 or 0
+= true
+[268] 0 or ''
+= false
+[269] 'x' and //para
+= true
+[270] //d:list/namespace::*
+= http://www.w3.org/XML/1998/namespace
+nodes: xml/36 a/5 c/5 /11
+[271] //d:list/namespace::c
+= urn:c
+nodes: c/5
+[272] //d:list/c:entry/namespace::*
+= http://www.w3.org/XML/1998/namespace
+nodes: xml/36 a/5 c/5 /11
+[273] //d:list/*[1]/namespace::*
+= http://www.w3.org/XML/1998/namespace
+nodes: xml/36 a/5 c/5 /11
+[274] string(//d:list/namespace::c)
+= urn:c
+[275] name(//d:list/namespace::c)
+= c
+[276] local-name(//d:list/namespace::*[last()])
+= 
+[277] count(//d:list/namespace::*)
+= 4
+[278] name(//d:list)
+= list
+[279] //d:list/d:entry[. > 0]
+= 3.5
+nodes: entry/3 entry/4
+[280] //d:entry/preceding::*[1]
+= A2
+nodes: a:item/2 entry/3 entry/2 entry/4 entry/3
+[281] //z/preceding::*
+= One bold text
+nodes: para/13 b/4 para/3 a:item/2 a:item/2 list/52 entry/3 entry/2 entry/4 entry/3 entry/0 c:entry/7
+[282] //z/preceding::node()[3]
+= c-entry
+nodes: /7
+[283] //mixed/preceding-sibling::*[position() < 3]
+= 
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+nodes: list/52 deep/9
+[284] //d:list/@*/..
+= 
+nodes:
+[285] //para[2]/@*
+= 2
+nodes: n/1 a:att/1 xml:id/2
+[286] //para[2]/@*/following::*[1]
+= A1
+nodes: a:item/2
+[287] //d:list/namespace::c/parent::*
+= 
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+nodes: list/52
+[288] //d:list/namespace::c/following::*[1]
+= deep text
+nodes: deep/9
+[289] //d:list/namespace::*/ancestor::*
+= 
+  One bold text
+  Two
+  A1
+  A2
+  
+    3.5
+    -2
+     10 
+    abc
+    
+    c-entry
+  
+  deep text
+  a<b>c&d
+  12345
+  
+
+nodes: root/121 list/52

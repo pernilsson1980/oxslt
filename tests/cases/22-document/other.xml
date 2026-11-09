@@ -1,0 +1,3 @@
+<?xml version="1.0"?>
+<!DOCTYPE o [ <!ATTLIST p id ID #IMPLIED> ]>
+<o>  <p id="p1">other-p1</p>  <p id="p2">other-p2</p>  </o>

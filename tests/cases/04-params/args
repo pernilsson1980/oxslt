@@ -1,0 +1,6 @@
+--stringparam
+greeting
+hello world
+--param
+factor
+3

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?top-pi first?>
+<!-- top comment -->
+<root xmlns:a="urn:a" xml:lang="en-GB" id="r">
+  <para n="1" xml:id="p1">One <b>bold</b> text</para>
+  <para n="2" a:att="x" xml:id="p2">Two</para>
+  <a:item a:k="1">A1<?pi-in data here?></a:item>
+  <a:item a:k="2"><!-- inner -->A2</a:item>
+  <list xmlns="urn:default" xmlns:c="urn:c">
+    <entry>3.5</entry>
+    <entry>-2</entry>
+    <entry> 10 </entry>
+    <entry>abc</entry>
+    <entry/>
+    <c:entry>c-entry</c:entry>
+  </list>
+  <deep><x><y><z id="z1" xml:lang="sv">deep text</z></y></x></deep>
+  <mixed>a<![CDATA[<b>]]>c&amp;d</mixed>
+  <nums><v>1</v><v>2</v><v>3</v><v>4</v><v>5</v></nums>
+  <empty></empty>
+</root>

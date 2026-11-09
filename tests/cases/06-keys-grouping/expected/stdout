@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<groups>
+  <g cust="a" n="2" total="4"/>
+  <g cust="b" n="2" total="7"/>
+  <g cust="c" n="1" total="7"/>
+  <same>true</same>
+  <diff>false</diff>
+</groups>

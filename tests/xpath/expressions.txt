@@ -1,0 +1,304 @@
+# XPath oracle: one expression per line, evaluated with the root node as the
+# context. "n " before an expression also lists the nodes it selects. The
+# stylesheet binds the prefixes a=urn:a, c=urn:c and d=urn:default.
+
+# --- paths and axes
+n /
+n /root
+n /*/*
+n //para
+n //para[2]
+n //para[last()]
+n //*[@n]
+n //@*
+n //@n
+n /root/@*
+n //node()[self::comment()]
+n //comment()
+n //processing-instruction()
+n //processing-instruction('pi-in')
+n /processing-instruction()
+n //text()[normalize-space()]
+n //a:item
+n //a:*
+n //d:entry
+n //d:*
+n //c:entry
+n //entry
+n //*[local-name()='entry']
+n //z/ancestor::*
+n //z/ancestor-or-self::*[1]
+n //z/ancestor::*[1]
+n //z/ancestor::*[last()]
+n //para[1]/following-sibling::*
+n //para[2]/preceding-sibling::*
+n //a:item[1]/following-sibling::*[2]
+n //a:item[2]/preceding-sibling::*[1]
+n //b/following::*
+n //b/preceding::*
+n //y/following::node()[1]
+n //y/preceding::*[1]
+n //para[1]/@n/following::*
+n //para[2]/@n/preceding::*
+n //para[1]/@n/parent::*
+n //para[1]/@n/ancestor::*
+n //para[1]/@n/following-sibling::*
+n //para/descendant::node()
+n //deep/descendant-or-self::*
+n //nums/v[position() > 2]
+n //nums/v[position() mod 2 = 0]
+n //nums/v[. > 2][2]
+n //nums/v[last() - 1]
+n (//nums/v)[2]
+n (//v | //para)[last()]
+n //v[3]/self::v
+n //v[3]/self::para
+n //v/..
+n //para/../..
+n //z/../../..
+n //*[count(*) = 5]
+n //*[not(*)][not(text())]
+n //list/namespace::*
+n //para[1]/namespace::*
+n //list/namespace::d
+n //list/namespace::c
+n //list/c:entry/namespace::*
+n /root/namespace::*[name()='a']
+n id('p2')
+n id('p1 p2 nosuch')
+n id(//para/@xml:id)
+n //*[lang('en')]
+n //*[lang('EN-gb')]
+n //*[lang('sv')]
+n //*[lang('e')]
+n //para | //a:item
+n //v[1] | //v[1]
+n //mixed/text()
+n //empty/node()
+n //*[@id]
+n /*/following::*
+n /root/para[@n = '2']/following-sibling::*[1]
+
+# --- string values and names
+string(/)
+string(/root/para)
+string(//mixed)
+string(//nums)
+string(//empty)
+string(//@n)
+string(//list/namespace::c)
+name(//a:item)
+local-name(//a:item)
+namespace-uri(//a:item)
+name(//para/@a:att)
+name(//@xml:lang)
+namespace-uri(//@xml:lang)
+name(//list)
+namespace-uri(//list/*)
+name(//comment())
+name(//processing-instruction())
+local-name(//processing-instruction('pi-in'))
+name(//list/namespace::c)
+name(//nothing)
+name()
+local-name(/)
+name(//text())
+
+# --- numbers
+1
+-1
+1.5
+.5
+5.
+0.1 + 0.2
+1 div 3
+2 div 3
+10 div 4
+1 div 0
+-1 div 0
+0 div 0
+-(0 div 0)
+1e3
+1.5e-3
+123456789
+1234567890
+2147483647
+2147483648
+-2147483648
+-2147483649
+1e9
+1e10
+999999999.5
+0.00001
+0.000001
+0.0000123
+1e21
+1e-7 * 3
+100000000000000000000
+123456.789
+3.14159265358979
+1.23456789012345678
+-0.0
+0 * -1
+7 mod 3
+-7 mod 3
+7 mod -3
+7.5 mod 2
+5 mod 0
+2 + 3 * 4
+(2 + 3) * 4
+2 - - 3
+--3
+- - 3
+10 - 3 - 2
+2 * 3 div 4
+number('12')
+number(' 12 ')
+number('-1.5')
+number('1e2')
+number('+1')
+number('1 2')
+number('')
+number('.')
+number('abc')
+number(true())
+number(false())
+number(//nums/v[3])
+number(//list/*[1])
+number(//list/*[3])
+sum(//nums/v)
+sum(//list/*)
+sum(//nothing)
+count(//*)
+count(//node())
+count(//@*)
+count(//namespace::*)
+count(//text())
+floor(2.5)
+floor(-2.5)
+ceiling(2.1)
+ceiling(-2.1)
+round(2.5)
+round(-2.5)
+round(-0.4)
+round(0.4)
+round(1 div 0)
+round(0 div 0)
+round(3.49999)
+round(-3.5)
+last()
+position()
+
+# --- strings
+concat('a', 'b', 'c')
+concat(1, true(), //para)
+starts-with('abc', 'ab')
+starts-with('abc', '')
+contains('abc', 'bc')
+contains('abc', 'x')
+substring-before('a/b/c', '/')
+substring-before('abc', 'x')
+substring-before('abc', '')
+substring-after('a/b/c', '/')
+substring-after('abc', '')
+substring('12345', 2)
+substring('12345', 2, 3)
+substring('12345', 1.5, 2.6)
+substring('12345', 0, 3)
+substring('12345', 0 div 0, 3)
+substring('12345', 1, 0 div 0)
+substring('12345', -42, 1 div 0)
+substring('12345', -1 div 0, 1 div 0)
+substring('12345', 3, -1)
+substring('12345', 5)
+substring('12345', 6)
+substring('åäöü', 2, 2)
+string-length('åäö')
+string-length('')
+string-length(//para)
+normalize-space('  a   b  c ')
+normalize-space('')
+normalize-space(//para)
+translate('abcabc', 'ab', 'X')
+translate('abc', 'abc', 'ABC')
+translate('aaa', 'aa', 'xy')
+translate('åbc', 'å', 'a')
+string(1 = 1)
+string(1 < 2)
+string('abc')
+string(0.5)
+string(-0)
+
+# --- booleans and comparisons
+true()
+false()
+not(1)
+not('')
+not(//nothing)
+boolean('0')
+boolean(0)
+boolean(0 div 0)
+boolean(//para)
+1 = 1
+1 = '1'
+'1' = 1.0
+'a' = 'a'
+'a' != 'b'
+true() = 'x'
+false() = ''
+1 = true()
+0 = false()
+2 > 1
+'2' > '1'
+'abc' < 'abd'
+true() > false()
+//nums/v = 3
+//nums/v != 3
+//nums/v > 4
+//nums/v < 1
+3 = //nums/v
+3 < //nums/v
+'3' = //nums/v
+//nums/v = '3'
+//nums/v = //para/@n
+//nums/v != //nums/v
+//nums/v > //para/@n
+//nothing = //nothing
+//nothing != //nothing
+//nothing = ''
+//nothing != ''
+//para = true()
+//nothing = false()
+//list/* = 'abc'
+//list/* > 3
+//list/* = -2
+1 < 2 < 3
+3 > 2 > 1
+1 = 1 = 1
+2 = 2 = 2
+1 and 0
+1 or 0
+0 or ''
+'x' and //para
+
+# --- namespaced elements reached properly (//list has no namespace, so it selects nothing)
+n //d:list/namespace::*
+n //d:list/namespace::c
+n //d:list/c:entry/namespace::*
+n //d:list/*[1]/namespace::*
+string(//d:list/namespace::c)
+name(//d:list/namespace::c)
+local-name(//d:list/namespace::*[last()])
+count(//d:list/namespace::*)
+name(//d:list)
+n //d:list/d:entry[. > 0]
+n //d:entry/preceding::*[1]
+n //z/preceding::*
+n //z/preceding::node()[3]
+n //mixed/preceding-sibling::*[position() < 3]
+n //d:list/@*/..
+n //para[2]/@*
+n //para[2]/@*/following::*[1]
+n //d:list/namespace::c/parent::*
+n //d:list/namespace::c/following::*[1]
+n //d:list/namespace::*/ancestor::*

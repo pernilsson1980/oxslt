@@ -1,0 +1,1 @@
+# Cases expected to fail. Rewritten by OXSLT_UPDATE_KNOWN_FAILURES=1 cargo test.

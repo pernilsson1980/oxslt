@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<root xmlns="urn:out" note="caf&#xE9; &#xA5;">
+  <code><![CDATA[first]]></code>
+  <code><![CDATA[a ]]]]><![CDATA[> b]]></code>
+  <empty>
+    
+  </empty>
+  <nested>
+    <leaf/>
+    <deeper>
+      <leaf/>
+    </deeper>
+  </nested>
+  <mixed xmlns="">text <b>bold</b> tail</mixed>
+  <unescaped><b></unescaped>
+  <copied><raw/></copied>
+  <!-- after -->
+</root>

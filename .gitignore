@@ -1,0 +1,12 @@
+/target
+# Third-party stylesheets (GPL/LGPL), fetched by scripts/fetch-real-stylesheets.sh
+/tests/real/
+
+# Conformance suite (Apache-2.0), fetched by scripts/fetch-conformance.sh
+/tests/conformance/xalan/
+/tests/conformance/expected/
+/tests/conformance/manifest.tsv
+/tests/tree-dumps/
+/tests/docbook/
+/tests/docbook-xsl/
+/tests/docbook-html/

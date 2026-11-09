@@ -1,0 +1,8 @@
+<out p="main" q="b" n="1234.5"><main-a><b-a><a-a><a2-a/></a-a></b-a></main-a><b-b><a-b/></b-b><a-c/>[sp:0][keep:0]1234.5<main-m><a-m/></main-m><main-named>
+  <main-a><b-a><a-a><a2-a/></a-a></b-a></main-a>
+  <b-b><a-b/></b-b>
+  <a-c/>
+  [sp:0]
+  [keep:0]
+  1234.5
+</main-named><only-a/></out>

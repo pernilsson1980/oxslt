@@ -1,0 +1,3 @@
+<?xml version="1.0"?>
+<out><toc><entry n="1">One</entry><entry n="2">Two</entry></toc><section><first>Alpha</first><note>Beta</note></section>
+<section><first>Gamma</first></section></out>

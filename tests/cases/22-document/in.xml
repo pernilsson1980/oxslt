@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!DOCTYPE r [ <!ATTLIST item id ID #IMPLIED> ]>
+<r>
+  <ref>other.xml</ref>
+  <ref>sub/inner.xml</ref>
+  <ref>missing.xml</ref>
+  <item id="x1">in-x1</item>
+</r>

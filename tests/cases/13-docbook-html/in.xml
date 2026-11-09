@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<article id="art">
+  <title>Test Article</title>
+  <articleinfo><author><firstname>Ada</firstname><surname>Lovelace</surname></author></articleinfo>
+  <section id="s1"><title>First section</title>
+    <para>See <xref linkend="s2"/> and the <emphasis role="bold">table</emphasis>&mdash;with an entity.</para>
+    <itemizedlist><listitem><para>One</para></listitem><listitem><para>Two</para></listitem></itemizedlist>
+    <programlisting>if (a &lt; b) { return; }</programlisting>
+  </section>
+  <section id="s2"><title>Second section</title>
+    <table><title>Data</title><tgroup cols="2"><thead><row><entry>K</entry><entry>V</entry></row></thead>
+      <tbody><row><entry>a</entry><entry>1</entry></row></tbody></tgroup></table>
+    <note><para>A note.<footnote><para>A footnote.</para></footnote></para></note>
+  </section>
+</article>

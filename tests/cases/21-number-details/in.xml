@@ -1,0 +1,5 @@
+<doc>
+  <chap t="c1"><sec>s</sec><sec>s<p>p1</p><p>p2</p></sec></chap>
+  <!-- c -->
+  <chap t="c2"><sec><p>p3</p></sec>text<?pi x?><?pi y?><?other z?></chap>
+</doc>

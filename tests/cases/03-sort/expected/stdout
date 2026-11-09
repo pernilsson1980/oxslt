@@ -1,0 +1,3 @@
+numeric desc: 100 10 9 9 -1
+text asc: Apple apple banana cherry date
+multi key: -1:date 9:apple 9:Apple 10:banana 100:cherry

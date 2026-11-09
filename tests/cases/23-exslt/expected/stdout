@@ -1,0 +1,17 @@
+rtf: 2,2,3
+string: 1,abc,1,Infinity,
+type: string,number,boolean,node-set
+sets: 4,3,3145,true,false
+leading: 2,0,5,2,2
+tokenize: token[a]token[b]token[c]token[d]|[x][y][z]|2
+split: [a][ b][ cAND d]|[x][y][z]|[a][b]
+concat: bab
+padding: [     ][ababa][xy][][   ]
+    
+align: [ab---][---ab][-ab--][abc]
+    
+replace: [a+b+c][aXbXc][QQ][1][1cd]
+    
+uri: a%20b%2Fc%3Fd%3D%C3%A9@%25|a%20b/c?d=%C3%A9@%25|a bé%zz%
+math: 1,5,NaN,NaN,1,2,0
+math2: 2.5,4,1024,3.14,2.718281828459046,NaN,NaN,3.141592653589793,true

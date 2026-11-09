@@ -1,0 +1,1 @@
+<page title="T &amp; &lt;x&gt;"><p>One<br/>two</p><img src="a b.png?x=1&amp;y=2"/><script>if (a &lt; b &amp;&amp; c) {}</script><opt checked="checked"/></page>

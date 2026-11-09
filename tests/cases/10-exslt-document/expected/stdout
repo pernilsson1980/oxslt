@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<r>
+  <name k="b">Banana</name>
+  <name k="a">Apple</name>
+  <name k="z"/>
+  <sum>7</sum>
+  <distinct>3</distinct>
+  <type>RTF</type>
+  <tok>a</tok>
+  <tok>b</tok>
+  <tok>c</tok>
+</r>

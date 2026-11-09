@@ -1,0 +1,9 @@
+<!DOCTYPE r [ <!ATTLIST item id ID #IMPLIED> ]>
+<r>
+  <item id="i1" cat="a b"><tag>x</tag><tag>y</tag><sub>s1</sub></item>
+  <item id="i2" cat="b"><tag>y</tag><sub>s2</sub></item>
+  <item id="i3" cat="c"><tag>z</tag><sub>s3</sub></item>
+  <other code="a">o1</other>
+  <other code="q">o2</other>
+  <i1><sub>under-i1</sub></i1>
+</r>

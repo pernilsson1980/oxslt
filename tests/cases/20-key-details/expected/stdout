@@ -1,0 +1,13 @@
+tag y: i1,i2,
+tags of i1: i1,i2,
+cat 'a b': 1
+cat 'a': 0
+code a: other,
+code a b: item,
+prefixed: s2
+undeclared: 0
+attr: cat
+text: 2
+number: 0
+cur: i3
+id//: s1key//: s2key/: s3plain: under-i1

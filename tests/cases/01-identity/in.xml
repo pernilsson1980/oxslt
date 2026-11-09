@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- a comment -->
+<doc xmlns:x="urn:x" a="1"><?pi data?>
+  <x:item id="i1">text &amp; more</x:item>
+  <empty/>
+  <![CDATA[<raw>]]>
+</doc>

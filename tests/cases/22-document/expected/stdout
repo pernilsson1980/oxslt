@@ -1,0 +1,13 @@
+same input: true
+other: other-p1other-p2
+stripped: 2
+loaded once: true
+by nodes: o,inner,
+node base: leaf-text
+xml:base: leaf-text
+second arg: leaf-text
+missing: 0
+fragment: other-p2
+self: 'x'
+key: other-p1
+id: 2
