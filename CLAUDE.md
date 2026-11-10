@@ -14,9 +14,9 @@ Roadmap step 2, catalogs, DTD handling and `--nonet`, is done (2026-11-09). Its 
 
 Roadmap step 3, full XSLT 1.0 and EXSLT, is done (2026-11-09). Imports, keys, `xsl:number`, `document()` and EXSLT's common, sets, strings and math functions work. All 298 "later" conformance tests pass. **The gate is met:** DocBook XSL's `html/docbook.xsl` gives output byte-identical to xsltproc's for all 237 DocBook documents from shadow and Linux-PAM, DocBook 5 ones included (`tests/docbook_html.rs`).
 
-**Decided 2026-11-09: no `exsl:document`.** oxslt doesn't write files, so the stylesheets that write their output through `exsl:document` (DocBook's man pages and chunked HTML) aren't supported, and the gate uses the single-page HTML stylesheet. `element-available('exsl:document')` is false. This keeps the security rule below, that untrusted stylesheets can run in `cargo test`.
+**Decided 2026-11-10: `exsl:document` works as in xsltproc** (reversing the 2026-11-09 decision to leave it out). Drop-in testing showed that most xsltproc calls in Debian builds are DocBook man pages, which write through it. The command line writes what xsltproc writes, relative to the `-o` file or the current directory, creating missing directories, restricted only by xsltproc's `--nowrite`, `--nomkdir` and `--writesubtree`. The library refuses writes unless the caller allows them (`exec::Limits::writes`), so tests and fuzzing never write files by default.
 
-Drop-in testing on Debian builds started 2026-11-09 (`tests/dropin`, `scripts/dropin.sh`): 17 bookworm packages are built offline with a wrapper as `/usr/bin/xsltproc` that runs oxslt and xsltproc on every call and records differences. It found and fixed: catalog resolution of command-line stylesheets, stylesheet-only runs, `document()` of a result tree fragment, EXSLT dates, `dyn:evaluate`, `--xinclude`, variables in `xsl:number` patterns, undeclared command-line parameters, leaked `exclude-result-prefixes` from included modules, `--` in comments, and libxml2's XHTML serializer. All 715 calls now match except those needing `exsl:document` (DocBook man pages and chunked HTML).
+Drop-in testing on Debian builds started 2026-11-09 (`tests/dropin`, `scripts/dropin.sh`): 17 bookworm packages are built offline with a wrapper as `/usr/bin/xsltproc` that runs oxslt and xsltproc on every call and records differences. It found and fixed: catalog resolution of command-line stylesheets, stylesheet-only runs, `document()` of a result tree fragment, EXSLT dates, `dyn:evaluate`, `--xinclude`, variables in `xsl:number` patterns, undeclared command-line parameters, leaked `exclude-result-prefixes` from included modules, `--` in comments, and libxml2's XHTML serializer. Since `exsl:document` (2026-11-10), all 715 calls match, including every file `exsl:document` writes (DocBook man pages and chunked HTML). The wrapper compares written files by before/after snapshots, so builds run serially.
 
 Still to do in PoC scope: EBCDIC (conformance `output22`, the only failing conformance test).
 
@@ -36,7 +36,7 @@ Agreed 2026-11-08. Both parts are judged against `xsltproc`'s output and exit co
 
 The first milestone is GnuCash's `iso-currencies-to-c.xsl` (58 lines). The real stylesheets, with pinned commits, are listed in `scripts/fetch-real-stylesheets.sh`. These files are GPL-licensed, so tests fetch them by script and never commit them.
 
-Never run third-party stylesheets with `xsltproc` directly on the Mac. Run them only in the offline, read-only container (`docker run --network none --read-only …`), because xsltproc has extensions that write files (`exsl:document`) and can fetch from the network. Running them through oxslt in `cargo test` is fine: oxslt has no file-writing or network features. Keep it that way, or move those tests into the container too.
+Never run third-party stylesheets with `xsltproc` directly on the Mac. Run them only in the offline, read-only container (`docker run --network none --read-only …`), because xsltproc has extensions that write files (`exsl:document`) and can fetch from the network. Running them through oxslt in `cargo test` is fine **only with `--nowrite`**: oxslt has no network features, but its command line writes `exsl:document` files as xsltproc does. The conformance, DocBook and `tests/real` harnesses pass `--nowrite`; our own `exsl:document` cases (`tests/cases/35`–`38`, with a `writes` file) run in a temporary copy. Keep it that way, or move those tests into the container too.
 
 ## Publishing
 
@@ -165,6 +165,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - `tests/cases/15-output-details` pins these down.
   - **The XHTML serializer** (xmlsave.c's xhtmlNodeDumpOutput) is used for xml output whose DOCTYPE has an XHTML 1.0 public or system ID: `<br />` for empty XHTML elements and `<p></p>` for others, a Content-Type `meta` added to a `head` under the root `html`, boolean attributes given their name as value, `id` from `name` and `lang`/`xml:lang` added in pairs, and `xmlns` on a bare `html`. `tests/cases/32`–`34` pin it down.
   - Not done: EBCDIC.
+- **`exsl:document`** (`exec::Transform::document_element`, libxslt's xsltDocumentElem): the `href` is resolved against the file being written (the `-o` file, or an enclosing `exsl:document`'s), checked as xsltCheckWrite checks it (making missing directories), and the body written with the element's own output attributes only; the main `xsl:output`'s `cdata-section-elements` still applies. An extension element is recognised by its prefix, as libxslt's xsltCheckExtPrefix does, and inherited namespaces with an extension prefix are skipped. Errors reported this way (a refused write, a missing `href`) let the transform finish but fail it: exit 9, or 11 with `-o` (any failure with `-o` is 11, as in xsltproc). `tests/cases/35`–`38`.
 - `src/xinclude.rs`: `--xinclude`, as libxml2 2.9.14 processes it, for inputs and `document()` loads: the document is rebuilt with each include replaced (text kept apart at include boundaries, as libxml2's marker nodes keep it), fallbacks, text includes, the shorthand, `element()`, `xpointer()` and `xmlns()` XPointer forms, and the `xml:base` fixup. An XInclude error makes xsltproc skip the input (exit 6). `tests/cases/27`, `28`.
 - `src/cli.rs`: xsltproc's options and exit codes.
   - Stylesheets and inputs named on the command line open through the catalogs, as libxml2's entity loader opens them; the resolved path is the document's location.
@@ -200,7 +201,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 
 ## Known differences from xsltproc
 
-- **Extension elements aren't supported:** `exsl:document`, `saxon:output`, `xt:document` (they write files), `func:function` and `libxslt:debug`. xsltproc reports them available.
+- **Extension elements:** `exsl:document`, `xt:document` and `saxon:output` (with a static `file`) work; `redirect:write` (libxslt's Xalan namespace), `libxslt:debug` and `func:result` don't, though `element-available()` reports them available as xsltproc does. DocBook's chunker asks for `saxon:output` first and names chunks by the answer. `func:function` is a top-level element, so it isn't available, and isn't supported.
 - **`exsl:object-type(exsl:node-set($rtf))` says "RTF"**, where libexslt says "node-set": oxslt's result tree fragments are node-sets, so it can't tell a converted one apart.
 - **math:sin and the other transcendental functions** use the platform's libm, which can differ from glibc's in the last bit.
 - **`xsl:sort` ignores `lang`.** The reference xsltproc has no locales installed, so it sorts the same way. On a system with the locale installed, xsltproc sorts by it (`strxfrm`).
@@ -241,7 +242,7 @@ Treat every stylesheet and input document as untrusted code. XSLT is Turing-comp
 - **Entity expansion:** protect DTD handling against "billion laughs" style attacks.
 - **No network access at all**, with or without `--nonet`. `document()` and external DTDs are classic attack paths.
 - **What a stylesheet or document can read** (reviewed 2026-11-09). Like xsltproc, oxslt reads any local file named by `document()`, `xsl:include`, `xsl:import`, an external DTD or an external entity in the input (`<!ENTITY x SYSTEM "/etc/passwd">` puts the file's text in the tree), resolved through the catalogs. This is xsltproc's behaviour and DocBook builds depend on it. So: don't run untrusted stylesheets on confidential machines, and don't send their output to untrusted parties. The library can refuse every read (`ResourceLoader::none()`).
-- **What oxslt writes:** only the `-o` output file. No extension writes files (`exsl:document` is deliberately unsupported).
+- **What oxslt writes:** the `-o` output file, and on the command line whatever `exsl:document` names, as xsltproc does: any file the user may write, creating directories, unless `--nowrite`, `--nomkdir` or `--writesubtree` restricts it. The library writes nothing unless the caller sets `Limits::writes`. An empty or failed result writes no file, not even an empty `-o` file.
 - **Errors, not panics.** Malformed input must never cause a panic. Return errors instead.
 - **Fuzz from the start** with cargo-fuzz: XML input, XPath parsing and whole transforms.
 

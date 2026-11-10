@@ -7,6 +7,9 @@
 //! - `style.xsl` and `in.xml`: the stylesheet and input
 //! - `args`: optional extra arguments, one per line, placed before `style.xsl`
 //! - `env`: optional `KEY=VALUE` defaults; a variable already set wins
+//! - `writes`: present when the case writes files (exsl:document); it runs
+//!   in a temporary copy, and the files it makes are compared with
+//!   `expected/files/`
 //! - `requires`: optional paths, one per line, relative to the case, that
 //!   must exist for the case to run, such as fetched DocBook stylesheets.
 //!   When one is missing the case is skipped with a note, as the other
@@ -25,7 +28,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use common::{lines, run_and_compare};
+use common::{lines, run_and_compare, run_writing_case};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -74,8 +77,18 @@ fn differential() {
             continue;
         }
         let mut args = lines(&dir.join("args"));
+        // Third-party stylesheets never write files (CLAUDE.md, Security).
+        if name.starts_with("real/") {
+            args.insert(0, "--nowrite".to_string());
+        }
         args.extend(["style.xsl".to_string(), "in.xml".to_string()]);
-        let problems = run_and_compare(dir, &args, &lines(&dir.join("env")), &dir.join("expected"));
+        let env = lines(&dir.join("env"));
+        let expected = dir.join("expected");
+        let problems = if dir.join("writes").exists() {
+            run_writing_case(dir, &args, &env, &expected)
+        } else {
+            run_and_compare(dir, &args, &env, &expected)
+        };
         let passed = problems.is_empty();
         let mark = match (passed, known.contains(name)) {
             (true, false) => "pass",

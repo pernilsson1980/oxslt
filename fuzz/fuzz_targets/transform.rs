@@ -46,6 +46,7 @@ fn transform(data: &[u8]) {
     let limits = Limits {
         max_work: Some(200_000),
         timeout: None,
+        ..Limits::default()
     };
     let mut messages = Vec::new();
     if let Ok(result) = Transform::run(

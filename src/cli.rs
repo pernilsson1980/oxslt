@@ -4,6 +4,7 @@
 //! template recursion can go deep; recursion past the limit stops with a
 //! controlled error instead of overflowing.
 
+use crate::xslt::exec::WriteCheck;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -29,12 +30,19 @@ const USAGE: &str = "Usage: oxslt [options] stylesheet file [file ...]
       --novalid             skip the DTD loading phase
       --path paths          directories to search for DTDs and entities
       --xinclude            do XInclude processing on document input
+      --nowrite             refuse to write to any file or resource
+      --nomkdir             refuse to create directories
+      --writesubtree path   allow file write only with the path subtree
       --version             print the version
 ";
 
 #[derive(Default)]
 struct Options {
     output: Option<PathBuf>,
+    /// What exsl:document may write: xsltproc's default, or as
+    /// `--nowrite`, `--nomkdir` and `--writesubtree` restrict it. Later
+    /// options override earlier ones, as they replace libxslt's checks.
+    writes: crate::xslt::exec::Writes,
     /// `--xinclude`: process XIncludes in the inputs.
     xinclude: bool,
     /// `--novalid`: no external DTD and no default attributes.
@@ -51,7 +59,10 @@ enum ParamArg {
 }
 
 fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32> {
-    let mut o = Options::default();
+    let mut o = Options {
+        writes: crate::xslt::exec::Writes::allowed(),
+        ..Options::default()
+    };
     let mut it = args.iter().map(|a| a.to_string_lossy().into_owned());
     let need = |it: &mut dyn Iterator<Item = String>, opt: &str, stderr: &mut dyn Write| {
         it.next().ok_or_else(|| {
@@ -94,6 +105,14 @@ fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32>
             }
             "--novalid" | "-novalid" => o.novalid = true,
             "--xinclude" | "-xinclude" => o.xinclude = true,
+            "--nowrite" | "-nowrite" => {
+                o.writes.files = WriteCheck::Refuse;
+                o.writes.mkdir = false;
+            }
+            "--nomkdir" | "-nomkdir" => o.writes.mkdir = false,
+            "--writesubtree" | "-writesubtree" => {
+                o.writes.files = WriteCheck::Subtree(need(&mut it, &a, stderr)?);
+            }
             // oxslt never uses the network, which is what --nonet asks for.
             "--nonet" | "-nonet" => {}
             "--version" | "-version" | "-V" => {
@@ -149,7 +168,9 @@ pub fn run(
         }
     };
     let _ = stderr.write_all(&err);
-    if !out.is_empty() || output.is_some() {
+    // An empty or failed result writes nothing, not even an empty -o file:
+    // xsltSaveResultToFilename returns before opening the file.
+    if !out.is_empty() {
         let written = match &output {
             Some(path) => std::fs::write(path, &out),
             None => stdout.write_all(&out).and_then(|_| stdout.flush()),
@@ -300,7 +321,13 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
             &options,
             source,
             params,
-            crate::xslt::exec::Limits::default(),
+            crate::xslt::exec::Limits {
+                writes: crate::xslt::exec::Writes {
+                    output_file: o.output.as_ref().map(|p| p.to_string_lossy().into_owned()),
+                    ..o.writes.clone()
+                },
+                ..Default::default()
+            },
             err,
         ) {
             Ok(result) => out.extend(crate::serialize::serialize(
@@ -309,10 +336,15 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
                 &stylesheet.output,
             )),
             Err(e) => {
-                let (msg, c) = match e {
+                let (msg, mut c) = match e {
                     ExecError::Runtime(m) => (m, exit::INTERNAL_ERROR),
                     ExecError::Terminated(m) => (m, exit::TERMINATED_BY_MESSAGE),
                 };
+                // With -o, xsltproc has no result to write, and saving it
+                // fails first: exit 11.
+                if o.output.is_some() {
+                    c = exit::OUTPUT_WRITE_FAILED;
+                }
                 if !msg.is_empty() {
                     let _ = writeln!(err, "{msg}");
                 }

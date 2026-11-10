@@ -40,9 +40,24 @@ for case in "${cases[@]}"; do
   done < "$case/env"
   mkdir -p "$case/expected"
   set +e
-  (cd "$case" && env ${envs[@]+"${envs[@]}"} "$bin" ${args[@]+"${args[@]}"} style.xsl in.xml \
-     > expected/stdout 2> /dev/null)
-  echo $? > "$case/expected/exit"
+  if [[ -f $case/writes ]]; then
+    # A case that writes files (exsl:document) runs in a copy; the files it
+    # makes are recorded in expected/files/.
+    work=$(mktemp -d)
+    (cd "$case" && tar --exclude=./expected -cf - .) | (cd "$work" && tar -xf -)
+    (cd "$work" && find . -type f | sort > /tmp/before)
+    (cd "$work" && env ${envs[@]+"${envs[@]}"} "$bin" ${args[@]+"${args[@]}"} style.xsl in.xml \
+       > "$case/expected/stdout" 2> /dev/null)
+    echo $? > "$case/expected/exit"
+    rm -rf "$case/expected/files"
+    (cd "$work" && find . -type f | sort | comm -13 /tmp/before - | while read -r f; do
+      mkdir -p "$case/expected/files/$(dirname "$f")"; cp "$f" "$case/expected/files/$f"; done)
+    rm -rf "$work"
+  else
+    (cd "$case" && env ${envs[@]+"${envs[@]}"} "$bin" ${args[@]+"${args[@]}"} style.xsl in.xml \
+       > expected/stdout 2> /dev/null)
+    echo $? > "$case/expected/exit"
+  fi
   set -e
   printf '%-28s exit %s\n' "$(basename "$case")" "$(cat "$case/expected/exit")"
 done

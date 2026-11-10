@@ -74,7 +74,12 @@ fn conformance() {
     let mut new_passes = Vec::new();
     for t in &tests {
         let dir = conf_dir().join("xalan").join(&t.category);
-        let args = [t.stylesheet.clone(), t.input.clone()];
+        // Third-party stylesheets never write files (CLAUDE.md, Security).
+        let args = [
+            "--nowrite".to_string(),
+            t.stylesheet.clone(),
+            t.input.clone(),
+        ];
         let problems = run_and_compare(&dir, &args, &[], &conf_dir().join("expected").join(&t.id));
         let ok = problems.is_empty();
         if !ok && t.poc && verbose {

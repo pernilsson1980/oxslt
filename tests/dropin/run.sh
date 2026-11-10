@@ -5,7 +5,9 @@
 set -u
 export DROPIN_OUT=/out
 export HOME=/tmp
-export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc)"
+# Serial builds: the wrapper finds the files a call wrote by modification
+# time, which another job running at the same time would confuse.
+export DEB_BUILD_OPTIONS="nocheck parallel=1"
 mkdir -p /out/logs
 pkgs=("$@")
 [ ${#pkgs[@]} = 0 ] && mapfile -t pkgs < <(grep -v '^#' /dropin/packages.txt)

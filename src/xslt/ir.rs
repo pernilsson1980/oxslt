@@ -233,6 +233,16 @@ pub enum Instr {
     ApplyImports {
         location: Location,
     },
+    /// `exsl:document` (or `xt:document`): the body, written to the file
+    /// `href` names, as libxslt's xsltDocumentElem writes it. `settings`
+    /// are its output attributes (`method`, `indent`, ...), each an AVT.
+    /// `href` is None when the attribute is missing.
+    Document {
+        href: Option<Avt>,
+        settings: Vec<(&'static str, Avt)>,
+        body: Body,
+        location: Location,
+    },
     Unsupported {
         what: String,
         location: Location,

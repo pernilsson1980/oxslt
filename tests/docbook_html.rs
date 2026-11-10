@@ -65,6 +65,7 @@ fn docbook_html_matches_xsltproc() {
                             .current_dir(input.parent().unwrap())
                             .env("XML_CATALOG_FILES", catalog)
                             .arg("--nonet")
+                            .arg("--nowrite")
                             .arg(stylesheet)
                             .arg(input.file_name().unwrap())
                             .stdin(Stdio::null())

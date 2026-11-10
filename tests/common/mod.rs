@@ -100,3 +100,72 @@ fn first_difference(want: &[u8], got: &[u8]) -> String {
         want.len()
     )
 }
+
+/// Every file under `dir`, by path relative to it, skipping `expected/`.
+#[allow(dead_code)] // not every test that includes this module uses it
+pub fn files_under(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+            if rel == "expected" {
+                continue;
+            }
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else if let Ok(bytes) = fs::read(&p) {
+                out.insert(rel, bytes);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
+}
+
+/// A case that writes files (it has a `writes` file) runs in a copy of its
+/// directory, in a fresh temporary directory; the files it makes there are
+/// compared with `expected/files/`, as xsltproc made them.
+#[allow(dead_code)]
+pub fn run_writing_case(
+    dir: &Path,
+    args: &[String],
+    env: &[String],
+    expected: &Path,
+) -> Vec<String> {
+    let tmp = std::env::temp_dir().join(format!(
+        "oxslt-case-{}-{}",
+        std::process::id(),
+        dir.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    let before = files_under(dir);
+    for (rel, bytes) in &before {
+        let p = tmp.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, bytes).unwrap();
+    }
+    let mut problems = run_and_compare(&tmp, args, env, expected);
+    let made: std::collections::BTreeMap<_, _> = files_under(&tmp)
+        .into_iter()
+        .filter(|(rel, bytes)| before.get(rel) != Some(bytes))
+        .collect();
+    let want = files_under(&expected.join("files"));
+    for (rel, bytes) in &want {
+        match made.get(rel) {
+            None => problems.push(format!("{rel} not written")),
+            Some(got) if got != bytes => {
+                problems.push(format!("{rel}: {}", first_difference(bytes, got)));
+            }
+            Some(_) => {}
+        }
+    }
+    for rel in made.keys().filter(|r| !want.contains_key(*r)) {
+        problems.push(format!("{rel} written, but not by xsltproc"));
+    }
+    let _ = fs::remove_dir_all(&tmp);
+    problems
+}

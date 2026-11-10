@@ -1,0 +1,4 @@
+--writesubtree
+allowed/
+-o
+allowed/main.xml

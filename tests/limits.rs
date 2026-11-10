@@ -55,7 +55,7 @@ fn run(stylesheet: &'static str, limits: Limits) -> Result<String, ExecError> {
 fn work(n: u64) -> Limits {
     Limits {
         max_work: Some(n),
-        timeout: None,
+        ..Limits::default()
     }
 }
 
@@ -116,8 +116,8 @@ fn xpath_work_counts() {
 #[test]
 fn timeout_stops() {
     let limits = Limits {
-        max_work: None,
         timeout: Some(Duration::from_millis(200)),
+        ..Limits::default()
     };
     let start = std::time::Instant::now();
     assert_stopped(run(EXPONENTIAL, limits), "time limit");

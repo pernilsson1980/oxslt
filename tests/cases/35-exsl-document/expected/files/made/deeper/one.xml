@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<one>
+  <item>one</item>
+  <item>two</item>
+  <c><![CDATA[cdata from the main xsl:output]]></c>
+</one>

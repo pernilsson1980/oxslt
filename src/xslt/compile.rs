@@ -13,6 +13,29 @@ use crate::xpath::{self, ast::Expr, ast::Name};
 pub const XSLT_NS: &str = "http://www.w3.org/1999/XSL/Transform";
 pub const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
 
+/// The namespaces whose `document` element writes a file: EXSLT's and
+/// James Clark's XT.
+pub const DOCUMENT_ELEMENT_NAMESPACES: [&str; 2] =
+    ["http://exslt.org/common", "http://www.jclark.com/xt"];
+
+/// Saxon's namespace, for `saxon:output`, which libxslt writes as it writes
+/// `exsl:document`.
+const SAXON_NS: &str = "http://icl.com/saxon";
+
+/// The output attributes xsltDocumentElem reads, in its order.
+const DOCUMENT_SETTINGS: [&str; 10] = [
+    "version",
+    "encoding",
+    "method",
+    "doctype-system",
+    "doctype-public",
+    "standalone",
+    "indent",
+    "omit-xml-declaration",
+    "cdata-section-elements",
+    "append",
+];
+
 #[derive(Debug, Clone)]
 pub struct CompileError {
     pub message: String,
@@ -506,14 +529,25 @@ impl Compiler<'_> {
     /// namespace, plus `exclude-result-prefixes` and `extension-element-prefixes`
     /// on `el`, its ancestors and the `xsl:stylesheet` element.
     fn excluded(&self, d: &Doc, el: NodeId) -> HashSet<Sym> {
+        self.excluded_uris(d, el, true)
+    }
+
+    /// The excluded URIs; `with_extensions` adds the extension namespaces'
+    /// URIs (for an element's own declarations).
+    fn excluded_uris(&self, d: &Doc, el: NodeId, with_extensions: bool) -> HashSet<Sym> {
         let mut out = HashSet::from([self.xslt]);
         out.extend(self.leaked_exclusions.iter().copied());
+        let attrs: &[&str] = if with_extensions {
+            &["exclude-result-prefixes", "extension-element-prefixes"]
+        } else {
+            &["exclude-result-prefixes"]
+        };
         let mut cur = Some(el);
         while let Some(e) = cur {
             if matches!(d.doc.kind(e), NodeKind::Element { .. }) {
                 let scope = self.in_scope(d.doc, e);
                 let is_xslt = self.is_xslt(d.doc, e);
-                for attr in ["exclude-result-prefixes", "extension-element-prefixes"] {
+                for &attr in attrs {
                     let v = if is_xslt {
                         self.attr(d.doc, e, attr)
                     } else {
@@ -1205,7 +1239,10 @@ impl Compiler<'_> {
                         }
                         out.push(self.instruction(d, n)?);
                     } else if self.is_extension(d, n) {
-                        out.extend(self.fallback(d, n)?);
+                        match self.document_element(d, n)? {
+                            Some(instr) => out.push(instr),
+                            None => out.extend(self.fallback(d, n)?),
+                        }
                     } else {
                         out.push(self.literal_element(d, n)?);
                     }
@@ -1216,29 +1253,96 @@ impl Compiler<'_> {
         Ok(out)
     }
 
+    /// Whether `el` is an extension element. libxslt (xsltCheckExtPrefix)
+    /// compares the element's prefix, as written, with the declared
+    /// extension prefixes; another prefix for the same URI doesn't count.
     fn is_extension(&self, d: &Doc, el: NodeId) -> bool {
-        let Some(ns) = d.doc.name(el).and_then(|q| q.ns) else {
+        let Some(q) = d.doc.name(el) else {
             return false;
         };
+        q.ns.is_some() && self.extension_prefixes(d, el).contains(&q.prefix)
+    }
+
+    /// The prefixes declared by `extension-element-prefixes` on `el` and
+    /// its ancestors (`#default` as None).
+    fn extension_prefixes(&self, d: &Doc, el: NodeId) -> HashSet<Option<Sym>> {
+        let mut out = HashSet::new();
         let mut cur = Some(el);
         while let Some(e) = cur {
             if matches!(d.doc.kind(e), NodeKind::Element { .. }) {
-                let scope = self.in_scope(d.doc, e);
                 let v = if self.is_xslt(d.doc, e) {
                     self.attr(d.doc, e, "extension-element-prefixes")
                 } else {
                     self.xsl_attr(d.doc, e, "extension-element-prefixes")
                 };
-                if v.unwrap_or("")
-                    .split_ascii_whitespace()
-                    .any(|p| self.resolve_prefix(&scope, p) == Some(ns))
-                {
-                    return true;
+                for p in v.unwrap_or("").split_ascii_whitespace() {
+                    match p {
+                        "#default" => {
+                            out.insert(None);
+                        }
+                        p => {
+                            if let Some(sym) = self.names.get(p) {
+                                out.insert(Some(sym));
+                            }
+                        }
+                    }
                 }
             }
             cur = d.doc.parent(e);
         }
-        false
+        out
+    }
+
+    /// `exsl:document` or `xt:document` (libxslt's xsltDocumentComp): None
+    /// for other extension elements.
+    fn document_element(&mut self, d: &Doc, el: NodeId) -> R<Option<Instr>> {
+        let q = d.doc.name(el).unwrap();
+        let ns = q.ns.map(|u| self.names.str(u)).unwrap_or("");
+        let local = self.names.str(q.local);
+        let saxon = ns == SAXON_NS && local == "output";
+        if !saxon && (local != "document" || !DOCUMENT_ELEMENT_NAMESPACES.contains(&ns)) {
+            return Ok(None);
+        }
+        let href = if saxon {
+            // saxon:output's file: libxslt takes a static value at compile
+            // time; an AVT makes it look for saxon:file or saxon:href
+            // instead, which stylesheets don't have, and fail.
+            match self.attr(d.doc, el, "file") {
+                Some(v) if !v.contains('{') => Some(self.avt(d, el, v)?),
+                _ => {
+                    let in_saxon = |name: &str| {
+                        d.doc.attributes(el).find_map(|a| {
+                            let q = d.doc.name(a)?;
+                            (q.ns.is_some_and(|u| self.names.str(u) == SAXON_NS)
+                                && self.names.str(q.local) == name)
+                                .then(|| d.doc.value(a).unwrap_or("").to_string())
+                        })
+                    };
+                    match in_saxon("file").or_else(|| in_saxon("href")) {
+                        Some(v) => Some(self.avt(d, el, &v)?),
+                        None => None,
+                    }
+                }
+            }
+        } else {
+            match self.attr(d.doc, el, "href") {
+                Some(v) => Some(self.avt(d, el, v)?),
+                None => None,
+            }
+        };
+        let mut settings = Vec::new();
+        for name in DOCUMENT_SETTINGS {
+            if let Some(v) = self.attr(d.doc, el, name) {
+                settings.push((name, self.avt(d, el, v)?));
+            }
+        }
+        let body = self.body(d, el)?;
+        Ok(Some(Instr::Document {
+            href,
+            settings,
+            body,
+            location: self.location(d, el),
+        }))
     }
 
     /// An unknown extension element: its `xsl:fallback` children run instead.
@@ -1289,9 +1393,13 @@ impl Compiler<'_> {
         if let Some(t) = parent.filter(|&p| self.is_xslt_named(d.doc, p, "template")) {
             // xsltGetInheritedNsList: from xsl:template upwards, nearest first,
             // minus stylesheet-level exclusions and extension prefixes.
-            let template_excluded = self.excluded(d, t);
+            // Extension namespaces are skipped by prefix
+            // (xsltCheckExtPrefix), exclusions by URI.
+            let template_excluded = self.excluded_uris(d, t, false);
+            let extension = self.extension_prefixes(d, t);
             for b in self.in_scope(d.doc, t) {
-                if !template_excluded.contains(&b.1) {
+                let ext = b.0.is_some() && extension.contains(&b.0);
+                if !template_excluded.contains(&b.1) && !ext {
                     candidates.push((b, false));
                 }
             }
@@ -1994,6 +2102,16 @@ fn refs_in_body(body: &Body, out: &mut Vec<Name>) {
             | Instr::UnescapedText(_)
             | Instr::ApplyImports { .. }
             | Instr::Unsupported { .. } => {}
+            Instr::Document {
+                href,
+                settings,
+                body,
+                ..
+            } => {
+                href.iter().for_each(|a| refs_in_avt(a, out));
+                settings.iter().for_each(|(_, a)| refs_in_avt(a, out));
+                refs_in_body(body, out);
+            }
             Instr::LiteralElement {
                 attributes, body, ..
             } => {

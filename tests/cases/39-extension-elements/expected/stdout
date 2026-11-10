@@ -1,0 +1,10 @@
+exsl:document=true
+saxon:output=true
+xt:document=true
+redirect:write=true
+libxslt:debug=true
+func:result=true
+func:function=false
+other:document=false
+xsl:document=true
+done
