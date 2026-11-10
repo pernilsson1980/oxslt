@@ -93,7 +93,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 - `src/catalog/`: loading as xsltproc's entity loader does.
   - OASIS XML catalogs from `XML_CATALOG_FILES` (default `/etc/xml/catalog`), with `public`, `system`, the rewrite, suffix and delegate entries, `nextCatalog`, `group` and `xml:base`.
   - A system ID is made absolute against the referring file, mapped by the catalogs, then tried as a URI if it's still not local.
-  - `--path` directories are tried with the URL's last segment.
+  - `--path` directories are tried with the URL's last segment. A stylesheet module found that way is named by the path found, as libxml2 names it, so `document()` calls in it resolve from that directory (`tests/cases/46-path-module-base`).
   - **There's no network access at all**, which is what `--nonet` asks for.
 - **Parser options match xsltproc's.** By default the DTD is loaded and its defaults applied (`ParseOptions::load_dtd`, `dtd_attributes`). `--novalid` turns off both, including defaults from the internal subset. Stylesheets, `xsl:include`d files and inputs all go through the same loader.
   - Each element records its line, for error messages.
@@ -203,6 +203,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 
 ## Known differences from xsltproc
 
+- **`--html`** (libxml2's HTML parser for inputs) isn't supported; oxslt rejects the option. lirc's build uses it.
 - **Extension elements:** `exsl:document`, `xt:document` and `saxon:output` (with a static `file`) work; `redirect:write` (libxslt's Xalan namespace), `libxslt:debug` and `func:result` don't, though `element-available()` reports them available as xsltproc does. DocBook's chunker asks for `saxon:output` first and names chunks by the answer. `func:function` is a top-level element, so it isn't available, and isn't supported.
 - **`exsl:object-type(exsl:node-set($rtf))` says "RTF"**, where libexslt says "node-set": oxslt's result tree fragments are node-sets, so it can't tell a converted one apart.
 - **math:sin and the other transcendental functions** use the platform's libm, which can differ from glibc's in the last bit.

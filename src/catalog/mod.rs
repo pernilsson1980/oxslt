@@ -531,6 +531,19 @@ impl ResourceLoader {
     /// made absolute against `base`, mapped by the catalogs, and tried as a
     /// URI if the result isn't local (libxml2's xmlResolveResourceFromCatalog).
     pub fn locate(&self, public: Option<&str>, system: &str, base: &Base) -> Option<PathBuf> {
+        self.locate_how(public, system, base).map(|(p, _)| p)
+    }
+
+    /// [`locate`](Self::locate), also saying whether a `--path` directory
+    /// found it. libxml2 then names the document by the path found
+    /// (xsltproc's loader returns an input for `dir/segment`), so its own
+    /// relative references resolve against that directory.
+    pub fn locate_how(
+        &self,
+        public: Option<&str>,
+        system: &str,
+        base: &Base,
+    ) -> Option<(PathBuf, bool)> {
         if self.refuse_all {
             return None;
         }
@@ -553,21 +566,36 @@ impl ResourceLoader {
             resource = mapped;
         }
         if let Some(p) = local_path(&resource).filter(|p| p.exists()) {
-            return Some(p);
+            return Some((p, false));
         }
         // xsltproc's --path: each directory with the URL's last segment.
         let last = absolute.rsplit('/').next().unwrap_or(&absolute);
-        self.paths.iter().map(|d| d.join(last)).find(|p| p.exists())
+        self.paths
+            .iter()
+            .map(|d| d.join(last))
+            .find(|p| p.exists())
+            .map(|p| (p, true))
     }
 
     /// Reads a document (a stylesheet include or a `document()` target).
     pub fn read_document(&self, href: &str, base: &Base) -> Result<(Vec<u8>, PathBuf), String> {
-        let path = self
-            .locate(None, href, base)
+        self.read_document_how(href, base)
+            .map(|(bytes, path, _)| (bytes, path))
+    }
+
+    /// [`read_document`](Self::read_document), also saying whether a
+    /// `--path` directory found it ([`locate_how`](Self::locate_how)).
+    pub fn read_document_how(
+        &self,
+        href: &str,
+        base: &Base,
+    ) -> Result<(Vec<u8>, PathBuf, bool), String> {
+        let (path, by_path) = self
+            .locate_how(None, href, base)
             .ok_or_else(|| format!("failed to load external entity \"{href}\""))?;
         let bytes = read_file(&path)
             .map_err(|e| format!("failed to load external entity \"{href}\": {e}"))?;
-        Ok((bytes, path))
+        Ok((bytes, path, by_path))
     }
 }
 

@@ -1127,9 +1127,9 @@ impl Compiler<'_> {
         let what = if included { "inclusion" } else { "import" };
         let href = self.required(d, el, "href")?;
         // Through the loader, so catalogs can map a URL to a local file.
-        let (bytes, path) = self
+        let (bytes, path, by_path) = self
             .loader
-            .read_document(href, &Some(d.path.clone()))
+            .read_document_how(href, &Some(d.path.clone()))
             .map_err(|e| self.error(d, el, format!("Failed to load '{href}': {e}")))?;
         if self.including.contains(&path) {
             return Err(self.error(d, el, format!("Recursive {what} of '{href}'")));
@@ -1145,7 +1145,14 @@ impl Compiler<'_> {
         self.warnings.extend(parsed.warnings);
         let mut doc = parsed.document;
         let base = self.location(d, el).base;
-        doc.url = Some(crate::uri::build(href, Some(&base)));
+        // The URL as requested, so relative ones stay relative; but a
+        // module found in a --path directory is named by the path found, as
+        // libxml2 names it, and its own includes resolve from there.
+        doc.url = Some(if by_path {
+            path.to_string_lossy().into_owned()
+        } else {
+            crate::uri::build(href, Some(&base))
+        });
         self.including.push(path.clone());
         let result = self.stylesheet(&doc, &path);
         self.including.pop();
