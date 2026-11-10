@@ -49,6 +49,9 @@ struct Options {
     novalid: bool,
     /// `--path`: directories to search when a DTD or entity fails to load.
     paths: Vec<PathBuf>,
+    /// `--catalogs`: the files in $SGML_CATALOG_FILES, used instead of
+    /// XML_CATALOG_FILES (libxml2 then never reads that).
+    catalogs: Option<Vec<String>>,
     params: Vec<(String, ParamArg)>,
     files: Vec<PathBuf>,
 }
@@ -103,6 +106,23 @@ fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32>
             "--maxdepth" | "-maxdepth" => {
                 need(&mut it, &a, stderr)?;
             }
+            // libxml2's xmlLoadCatalogs on $SGML_CATALOG_FILES. Called before
+            // any catalog is used, the first file it loads becomes the default
+            // catalog and marks catalogs initialised, so XML_CATALOG_FILES and
+            // /etc/xml/catalog are never read; the other files are added after
+            // it. Files are separated by colons or blanks.
+            "--catalogs" | "-catalogs" => match std::env::var("SGML_CATALOG_FILES") {
+                Ok(v) => {
+                    let files = v
+                        .split([':', ' ', '\t', '\n', '\r'])
+                        .filter(|f| !f.is_empty())
+                        .map(str::to_string);
+                    o.catalogs.get_or_insert_with(Vec::new).extend(files);
+                }
+                Err(_) => {
+                    let _ = writeln!(stderr, "Variable $SGML_CATALOG_FILES not set");
+                }
+            },
             "--novalid" | "-novalid" => o.novalid = true,
             "--xinclude" | "-xinclude" => o.xinclude = true,
             "--nowrite" | "-nowrite" => {
@@ -187,14 +207,18 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
     let (style_path, inputs) = o.files.split_first().expect("checked in parse_args");
     let mut names = NamePool::new();
     // xsltproc's parser options: entities substituted, the DTD loaded and its
-    // defaults applied, unless --novalid. Catalogs come from the environment.
+    // defaults applied, unless --novalid. Catalogs come from the environment,
+    // or from $SGML_CATALOG_FILES with --catalogs.
     let options = ParseOptions {
         load_dtd: !o.novalid,
         dtd_attributes: !o.novalid,
         xinclude: o.xinclude,
         ..ParseOptions::default()
     };
-    let loader = ResourceLoader::from_env(o.paths.clone());
+    let mut loader = ResourceLoader::from_env(o.paths.clone());
+    if let Some(files) = &o.catalogs {
+        loader.catalog = crate::catalog::Catalog::new(files.clone());
+    }
     let (style_bytes, style_loc) = match open_argument(&loader, style_path) {
         Ok(b) => b,
         Err(e) => {
@@ -249,13 +273,9 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
             for e in errors {
                 let _ = writeln!(err, "{e}");
             }
-            // xsltproc reports compile errors in the exit code only while
-            // processing an input; with none it exits 0.
-            return if inputs.is_empty() {
-                exit::SUCCESS
-            } else {
-                exit::STYLESHEET_ERROR
-            };
+            // xsltproc exits 5 on a stylesheet with errors (cur->errors),
+            // with or without inputs.
+            return exit::STYLESHEET_ERROR;
         }
     };
 
@@ -370,6 +390,13 @@ fn open_argument(
     loader: &ResourceLoader,
     arg: &std::path::Path,
 ) -> std::io::Result<(Vec<u8>, std::path::PathBuf)> {
+    // "-" is standard input, as libxml2's xmlFileOpen reads it; the
+    // document's URL is "-", so relative references resolve against the
+    // current directory.
+    if arg.as_os_str() == "-" {
+        let bytes = crate::catalog::read_stream(std::io::stdin().lock())?;
+        return Ok((bytes, arg.to_path_buf()));
+    }
     let path = loader
         .locate(None, &arg.to_string_lossy(), &None)
         .unwrap_or_else(|| arg.to_path_buf());

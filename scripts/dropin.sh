@@ -2,13 +2,15 @@
 # Drop-in testing: builds Debian packages with oxslt and xsltproc side by side.
 #
 #   scripts/dropin.sh [package ...]    (default: tests/dropin/packages.txt)
+#   scripts/dropin.sh --list packages-2.txt [package ...]
+#   DROPIN_RESULTS=dir scripts/dropin.sh ...   (results there, not target/dropin/out)
 #
 # 1. Builds a Linux oxslt in the oxslt-bench container.
 # 2. Builds the oxslt-dropin image (network: build dependencies and sources).
 # 3. Builds the packages offline, with a read-only root, through the comparing
 #    wrapper (tests/dropin/xsltproc-wrapper.sh).
 #
-# Results in target/dropin/out: builds.tsv (one line per package), calls.tsv
+# Results in target/dropin/out (or $DROPIN_RESULTS): builds.tsv (one line per package), calls.tsv
 # (one line per xsltproc call), diffs/<package>/<call>/ for each call where
 # oxslt differed, logs/<package>.log. Needs docker (Colima).
 
@@ -17,7 +19,8 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 dropin=$here/target/dropin
 platform=linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-mkdir -p "$dropin/bin" "$dropin/out"
+out=${DROPIN_RESULTS:-$dropin/out}
+mkdir -p "$dropin/bin"
 
 # 1. oxslt for Linux, built from the working tree.
 docker image inspect oxslt-bench >/dev/null 2>&1 \
@@ -34,11 +37,11 @@ docker build --platform "$platform" -t oxslt-dropin "$here/tests/dropin"
 #    Docker volume, not a directory on the host: macOS's file system rejects
 #    some file names in source packages and skews timestamps, which breaks
 #    meson and automake.
-rm -rf "$dropin/out" && mkdir -p "$dropin/out"
+rm -rf "$out" && mkdir -p "$out"
 docker run --rm --platform "$platform" --network none --read-only \
   --tmpfs /tmp:exec,size=4g \
   -v "$dropin/bin/oxslt":/opt/oxslt/oxslt:ro \
-  -v oxslt-dropin-work:/work -v "$dropin/out":/out \
+  -v oxslt-dropin-work:/work -v "$out":/out \
   oxslt-dropin /dropin/run.sh "$@"
 
-echo "results: $dropin/out (builds.tsv, calls.tsv, diffs/)"
+echo "results: $out (builds.tsv, calls.tsv, diffs/)"

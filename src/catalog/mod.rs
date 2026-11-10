@@ -89,8 +89,16 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
         (&file).read_to_end(&mut out)?;
         return Ok(out);
     }
+    read_stream(file)
+}
+
+/// Reads a stream (a pipe, standard input, a device) as `read_file` reads a
+/// file that isn't a regular file: in chunks, at most 1 GiB, stopping at a
+/// NUL byte unless the data starts like UTF-16 or UCS-4.
+pub fn read_stream(stream: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
     let mut out = Vec::new();
-    let mut reader = file.take(MAX_STREAM);
+    let mut reader = stream.take(MAX_STREAM);
     let mut chunk = [0u8; 4096];
     loop {
         let n = reader.read(&mut chunk)?;

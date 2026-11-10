@@ -807,16 +807,21 @@ pub fn decode_attribute_value(
     depth: usize,
 ) -> Result<String, String> {
     let mut out = String::with_capacity(raw.len());
-    decode_attribute_value_into(raw, entities, depth, &mut out)?;
+    decode_attribute_value_into(raw, entities, depth, &mut out, None)?;
     Ok(out)
 }
 
-/// [`decode_attribute_value`], appending to `out`.
+/// [`decode_attribute_value`], appending to `out`. With `undeclared`, a
+/// reference to an undeclared entity is dropped and a warning added there
+/// instead of failing: libxml2's xmlParseEntityRef does that when the
+/// document has an external subset or parameter-entity references (XML 1.0
+/// section 4.1, WFC: Entity Declared), in attribute values as in content.
 pub fn decode_attribute_value_into(
     raw: &str,
     entities: &HashMap<String, Entity>,
     depth: usize,
     out: &mut String,
+    mut undeclared: Option<&mut Vec<String>>,
 ) -> Result<(), String> {
     if depth > 40 {
         return Err("Detected an entity reference loop".into());
@@ -853,12 +858,21 @@ pub fn decode_attribute_value_into(
                                     "'<' in entity '{r}' is not allowed in attributes values"
                                 ));
                             }
-                            decode_attribute_value_into(text, entities, depth + 1, out)?;
+                            decode_attribute_value_into(
+                                text,
+                                entities,
+                                depth + 1,
+                                out,
+                                undeclared.as_deref_mut(),
+                            )?;
                         }
                         Some(_) => {
                             return Err(format!("Attribute references external entity '{r}'"));
                         }
-                        None => return Err(format!("Entity '{r}' not defined")),
+                        None => match undeclared.as_deref_mut() {
+                            Some(warnings) => warnings.push(format!("Entity '{r}' not defined")),
+                            None => return Err(format!("Entity '{r}' not defined")),
+                        },
                     }
                 }
                 i += end + 1;

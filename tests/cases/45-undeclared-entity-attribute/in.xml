@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!-- With an external subset (here one that can't be loaded), an undeclared
+     entity is a non-fatal error and the reference is dropped, in attribute
+     values as in content (libxml2's xmlParseEntityRef). fprintd's D-Bus
+     interface files have one. -->
+<!DOCTYPE a SYSTEM "missing.dtd" [
+<!ENTITY x "X">
+<!ENTITY y "[&undef;&x;]">
+]>
+<a n="1&undef;2&x;3" m="&y;"><b c="&undef;">t&undef;u</b></a>

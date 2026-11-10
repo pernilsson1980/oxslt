@@ -11,7 +11,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 - **XSLT 1.0 and XPath 1.0**, including imports and import precedence, keys, `xsl:number`, `document()`, `format-number()` and the xml, html and text output methods.
 - **EXSLT:** common (`exsl:node-set`, `exsl:object-type`, `exsl:document`), sets, strings, math, most of dates and times, and `dyn:evaluate`.
 - **XInclude** (`--xinclude`) and libxml2's XHTML serializer.
-- **DTDs and XML catalogs:** internal and external subsets, entities, default attributes and IDs, with catalogs from `XML_CATALOG_FILES`.
+- **DTDs and XML catalogs:** internal and external subsets, entities, default attributes and IDs, with catalogs from `XML_CATALOG_FILES` (or `SGML_CATALOG_FILES` with `--catalogs`).
 - **Conformance:** 1,691 of the 1,692 tests in Apache's xalan-test `conf` suite (the Lotus/Xalan contribution to the OASIS XSLT suite) give output identical to `xsltproc`'s.
 - **DocBook:** DocBook XSL's single-page HTML stylesheet (`html/docbook.xsl`) gives output identical to `xsltproc`'s for 237 DocBook 4.5 and 5 documents.
 - **Real build stylesheets** from GnuCash, GIMP, darktable, FluidSynth and Wireshark give identical output.

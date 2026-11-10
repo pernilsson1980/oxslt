@@ -119,6 +119,7 @@ pub fn compile_with(
         precedence: 0,
         modules: vec![Vec::new()],
         global_modules: Vec::new(),
+        global_variables: HashSet::new(),
         module_sets: HashMap::new(),
         cdata_modules: Vec::new(),
         scopes: Default::default(),
@@ -174,6 +175,9 @@ struct Compiler<'n> {
     modules: Vec<Vec<usize>>,
     /// The module of each entry in `ss.globals`.
     global_modules: Vec<usize>,
+    /// (module, name) of each global `xsl:variable`, for libxslt's
+    /// "redefinition of global variable" check.
+    global_variables: HashSet<(usize, Name)>,
     /// Attribute sets by name, one per module that defines the name.
     module_sets: HashMap<Name, Vec<(usize, AttributeSet)>>,
     /// `cdata-section-elements` names, with the module declaring each.
@@ -368,6 +372,20 @@ impl Compiler<'_> {
                 }
             };
         Ok((ns, self.names.intern(local)))
+    }
+
+    /// A pattern, compiled as an expression. libxslt's own pattern compiler
+    /// doesn't accept the extra slashes libxml2's XPath compiler skips
+    /// (`///x`, `/ /x`), so they're rejected here first.
+    fn pattern_xpath(&mut self, d: &Doc, el: NodeId, text: &str) -> R<Expr> {
+        use xpath::lexer::Tok;
+        if let Ok(toks) = xpath::lexer::tokenize(text) {
+            let slash = |t: &xpath::lexer::Token| matches!(t.tok, Tok::Slash | Tok::SlashSlash);
+            if toks.windows(2).any(|w| slash(&w[0]) && slash(&w[1])) {
+                return Err(self.error(d, el, format!("Failed to compile pattern '{text}'")));
+            }
+        }
+        self.xpath(d, el, text)
     }
 
     fn xpath(&mut self, d: &Doc, el: NodeId, expr: &str) -> R<Expr> {
@@ -803,6 +821,17 @@ impl Compiler<'_> {
                 {
                     let name = self.qname(d, el, name)?;
                     self.ss.global_variable_names.insert(name);
+                    // libxslt's xsltRegisterGlobalVariable: two xsl:variables
+                    // of one name in a stylesheet and its includes are an
+                    // error; params, or a param and a variable, aren't.
+                    if !self.global_variables.insert((self.precedence, name)) {
+                        let shown = self.attr(d.doc, el, "name").unwrap_or("").to_string();
+                        return Err(self.error(
+                            d,
+                            el,
+                            format!("redefinition of global variable {shown}"),
+                        ));
+                    }
                 }
                 let v = self.variable(d, el)?;
                 self.ss.globals.push(v);
@@ -849,7 +878,7 @@ impl Compiler<'_> {
     fn template(&mut self, d: &Doc, el: NodeId) -> R<()> {
         let matches = match self.attr(d.doc, el, "match") {
             Some(m) => {
-                let expr = self.xpath(d, el, m)?;
+                let expr = self.pattern_xpath(d, el, m)?;
                 Some(
                     pattern::from_expr(expr, false)
                         .map_err(|e| self.error(d, el, format!("{} '{m}'", e.0)))?,
@@ -1137,7 +1166,7 @@ impl Compiler<'_> {
         let name = self.required(d, el, "name")?;
         let name = self.qname(d, el, name)?;
         let m = self.required(d, el, "match")?;
-        let expr = self.xpath(d, el, m)?;
+        let expr = self.pattern_xpath(d, el, m)?;
         let matches = pattern::from_expr(expr, false)
             .map_err(|e| self.error(d, el, format!("{} '{m}'", e.0)))?;
         let use_text = self.required(d, el, "use")?;
@@ -1715,7 +1744,8 @@ impl Compiler<'_> {
     /// Numbers the modules by a post-order walk of the import tree (the
     /// main module highest) and resolves what precedence decides: named
     /// templates and global variables keep only their highest-precedence
-    /// definition, the later one on a tie.
+    /// definition (named templates the later one on a tie, globals the
+    /// first).
     fn assign_precedence(&mut self) {
         fn walk(modules: &[Vec<usize>], m: usize, rank: &mut [usize], next: &mut usize) {
             for &i in &modules[m] {
@@ -1761,10 +1791,14 @@ impl Compiler<'_> {
             let p = best.entry(g.name).or_insert(rank[m]);
             *p = (*p).max(rank[m]);
         }
+        // On a tie (a stylesheet and its includes) the first declaration in
+        // document order wins: libxslt appends globals to the stylesheet's
+        // list and xsltEvalGlobalVariables skips names already defined.
         let mut keep = self.global_modules.iter().map(|&m| rank[m]);
+        let mut kept = HashSet::new();
         self.ss
             .globals
-            .retain(|g| keep.next() == Some(best[&g.name]));
+            .retain(|g| keep.next() == Some(best[&g.name]) && kept.insert(g.name));
 
         // libxslt takes cdata-section-elements from the first module, in
         // precedence order, that has any (XSLT_GET_IMPORT_PTR); they don't
@@ -1833,7 +1867,7 @@ impl Compiler<'_> {
         let pattern = |c: &mut Self, attr: &str| -> R<Option<pattern::Pattern>> {
             match c.attr(d.doc, el, attr) {
                 Some(p) => {
-                    let expr = c.xpath(d, el, p)?;
+                    let expr = c.pattern_xpath(d, el, p)?;
                     let pat = pattern::from_expr(expr, true)
                         .map_err(|e| c.error(d, el, format!("{} '{p}'", e.0)))?;
                     Ok(Some(pat))

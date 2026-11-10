@@ -89,7 +89,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - The first declaration of a name wins.
   - Limits: 40 levels of entity nesting; 10 million characters of expansion in total, against "billion laughs".
   - Entity replacement text containing markup is parsed in place as a balanced fragment.
-  - An undeclared entity is an error, or a warning that drops the reference when there's an external subset or a parameter-entity reference (XML 1.0's "Entity Declared" rules). libxml2 leaves an entity-reference node there, so the text on either side stays two text nodes.
+  - An undeclared entity is an error, or a warning that drops the reference when there's an external subset or a parameter-entity reference (XML 1.0's "Entity Declared" rules). libxml2 leaves an entity-reference node there, so the text on either side stays two text nodes. In an attribute value the reference is dropped the same way (`tests/cases/45-undeclared-entity-attribute`).
 - `src/catalog/`: loading as xsltproc's entity loader does.
   - OASIS XML catalogs from `XML_CATALOG_FILES` (default `/etc/xml/catalog`), with `public`, `system`, the rewrite, suffix and delegate entries, `nextCatalog`, `group` and `xml:base`.
   - A system ID is made absolute against the referring file, mapped by the catalogs, then tried as a URI if it's still not local.
@@ -103,7 +103,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - Tokens borrow from the expression text; binary operators are parsed by precedence climbing (`parser::binary_from`).
   - `NodeRef` is (document, node, namespace-node index). Its ordering is document order; namespace nodes sort after their element, before its attributes.
   - `Variables` and `Functions` are the hooks XSLT plugs into.
-  - **Where libxml2 2.9 departs from the spec, oxslt follows libxml2**, with a comment at each place. Examples: number formatting (`1e+21`, `-2.147483648e+09`), namespace-axis order, the `following` axis of an attribute, `round()` and `substring()`.
+  - **Where libxml2 2.9 departs from the spec, oxslt follows libxml2**, with a comment at each place. Examples: number formatting (`1e+21`, `-2.147483648e+09`), namespace-axis order, the `following` axis of an attribute, `round()` and `substring()`. libxml2's path grammar is lax too: a relative location path may start with an extra `/` or `//`, so `///x` is `//x`, and a lone `/` not followed by a step is skipped (`parser::relative_path`, `tests/cases/40-xpath-extra-slashes`). libxslt's pattern compiler isn't lax, so a pattern like `///x` is a compile error (`compile::pattern_xpath`, `tests/cases/44`).
   - **Hostile input can't overflow the stack.** Nesting past `MAX_NESTING` (100) is rejected on the way in. Trees taller than `MAX_HEIGHT` (250) are rejected while being built, sized so evaluation fits on a 2 MB debug-build thread.
 - `src/xslt/`: the engine.
   - `compile` turns the stylesheet tree into the IR in `ir`. That includes includes, literal-result-element stylesheets, namespace exclusion and aliasing, AVTs, and globals ordered by their dependencies.
@@ -125,7 +125,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
     - Modules are numbered by a post-order walk of the import tree. An included file's imports become the including module's, after its own.
     - Template rules compare precedence, then priority, then position.
     - `xsl:apply-imports` considers every rule of lower precedence than the current template rule's, not only the current module's imports (libxslt's `xsltNextImport`). Inside `xsl:for-each` there's no current rule: a runtime error.
-    - Named templates and globals keep their highest-precedence definition. Attribute sets merge, the highest-precedence attributes first.
+    - Named templates and globals keep their highest-precedence definition. On a tie (a stylesheet and its includes), a named template's later definition wins but a global's **first** one, in document order with includes expanded in place, as libxslt's list of globals has it; xmlto's included encoding module relies on that. Two global `xsl:variable`s of one name in a stylesheet and its includes are a compile error; params, or a param and a variable, aren't (`tests/cases/41-global-ties`, `42-global-redefinition`). Attribute sets merge, the highest-precedence attributes first.
     - `cdata-section-elements` comes only from the highest-precedence module that has any. An imported unnamed `xsl:decimal-format` is ignored; a named one's first declaration wins.
     - An unknown top-level `xsl:` element is a compile error even in forwards-compatible mode, and so is a top-level element with no namespace.
     - **A module's `exclude-result-prefixes` is never popped** within an import unit: libxslt pushes it when it starts the module, so an included module's exclusions also apply to the including module's later templates. Each `xsl:import` starts afresh. `tests/cases/31-include-exclusions`.
@@ -169,7 +169,9 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 - `src/xinclude.rs`: `--xinclude`, as libxml2 2.9.14 processes it, for inputs and `document()` loads: the document is rebuilt with each include replaced (text kept apart at include boundaries, as libxml2's marker nodes keep it), fallbacks, text includes, the shorthand, `element()`, `xpointer()` and `xmlns()` XPointer forms, and the `xml:base` fixup. An XInclude error makes xsltproc skip the input (exit 6). `tests/cases/27`, `28`.
 - `src/cli.rs`: xsltproc's options and exit codes.
   - Stylesheets and inputs named on the command line open through the catalogs, as libxml2's entity loader opens them; the resolved path is the document's location.
-  - A stylesheet with no input is compiled and nothing transformed (exit 0, even with compile errors), as xsltproc does.
+  - A stylesheet with no input is compiled and nothing transformed (exit 0), as xsltproc does. Compile errors are exit 5 with or without inputs.
+  - `-` as the stylesheet or an input is standard input, as libxml2 reads it.
+  - `--catalogs` loads the catalogs in `$SGML_CATALOG_FILES` (colons or blanks between them) **instead of** `XML_CATALOG_FILES` and `/etc/xml/catalog`: in libxml2 the first one loaded becomes the default catalog and stops the usual initialisation. Unset, it only warns. SGML-format catalogs aren't read. `tests/cases/43-catalogs`.
   - Command-line parameters are globals even when the stylesheet doesn't declare them, and are ignored when a module declares an `xsl:variable` of that name.
   - The transform runs on a thread with a 512 MiB stack.
   - Template recursion deeper than 3,000 stops with libxslt's message and exit 10.
@@ -194,7 +196,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - `xpath`: any string compiles or errors, and evaluation never panics or overflows. Node-sets stay sorted.
   - `transform`: a stylesheet, a NUL byte and an input; compiling, transforming and serialising never panic. It runs with a work budget and `ResourceLoader::none()`, which reads no files. Seed it with the conformance tests and `tests/cases` (stylesheet, NUL, input).
 - `tests/dropin/`, `scripts/dropin.sh`: drop-in testing on Debian package builds (offline container, comparing wrapper as `/usr/bin/xsltproc`). Results in `target/dropin/out`.
-- `tests/cli.rs`: command-line behaviour the differential cases can't express (no input file, missing stylesheet).
+- `tests/cli.rs`: command-line behaviour the differential cases can't express (no input file, missing stylesheet, standard input, `--catalogs` unset).
 - `tests/limits.rs`: runaway transforms (exponential recursion, string doubling, nested XPath, a timeout) stop with the limit's error; ordinary ones don't notice the limits.
 - `tests/common/mod.rs`: runs oxslt on a case and compares its result with the recorded output.
 - `tests/reference/Dockerfile`: the `oxslt-reference` image, with Debian `xsltproc` and DocBook, used to record expected output.

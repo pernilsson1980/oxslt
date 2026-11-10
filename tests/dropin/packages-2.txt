@@ -1,0 +1,92 @@
+# Second drop-in batch (2026-11-10): bookworm packages that build-depend on
+# xsltproc, chosen for varied uses and moderate build dependencies.
+# Left out because their build dependencies conflict with this list's:
+# syslog-ng, docbook2x, cluster-glue.
+# DocBook / xmlto man pages
+adcli
+bolt
+cryptsetup
+drbd-utils
+firewalld
+fprintd
+gssproxy
+gss-ntlmssp
+ima-evm-utils
+ldapvi
+lsyncd
+libopenobex
+mandos
+molly-guard
+netctl
+networkd-dispatcher
+nsntrace
+opensysusers
+pastebinit
+ps2eps
+realmd
+socket-wrapper
+nss-wrapper
+resolv-wrapper
+systemd-bootchart
+tdb
+tgt
+trace-cmd
+udiskie
+uacme
+xdg-dbus-proxy
+ypbind-mt
+ypserv
+mutt
+neomutt
+git-crypt
+git-evtag
+mylvmbackup
+autorevision
+opensc
+xmlsec1
+policykit-1
+libxext
+libxi
+libmtp
+tpm2-tss
+mosquitto
+varnish
+lirc
+jemalloc
+# Debian tooling
+devscripts
+git-buildpackage
+apt-listchanges
+debspawn
+dput-ng
+svn-buildpackage
+doc-base
+grml-debootstrap
+grml2usb
+# Larger documentation sets and chunked HTML
+flatpak
+flatpak-builder
+ostree
+ntpsec
+vala
+po4a
+yaz
+idzebra
+routino
+xmlto
+shorewall
+crmsh
+resource-agents
+booth
+# GNOME and C++ bindings (yelp, mm-common)
+yelp-xsl
+yelp-tools
+telepathy-spec
+libsigc++-3.0
+glibmm2.68
+# Code and data generation
+libxcb
+chemical-mime-data
+ninja-build
+tidy-html5
+open-adventure

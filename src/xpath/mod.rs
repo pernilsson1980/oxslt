@@ -7,7 +7,7 @@
 
 pub mod ast;
 mod eval;
-mod lexer;
+pub(crate) mod lexer;
 pub mod number;
 mod parser;
 

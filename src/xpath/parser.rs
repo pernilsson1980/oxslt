@@ -226,11 +226,16 @@ impl<'a> Parser<'a> {
                 height = Self::check(height + 1)?;
                 Expr::Filter(Box::new(primary), predicates)
             };
-            if !matches!(self.peek(), Some(Tok::Slash | Tok::SlashSlash)) {
-                return Ok((filter, height));
-            }
             let mut steps = Vec::new();
-            let sh = self.relative_steps(&mut steps)?;
+            match self.peek() {
+                Some(Tok::SlashSlash) => {
+                    self.i += 1;
+                    steps.push(descendant_or_self());
+                }
+                Some(Tok::Slash) => {}
+                _ => return Ok((filter, height)),
+            }
+            let sh = self.relative_path(&mut steps)?;
             let height = Self::check(height.max(sh) + 1)?;
             return Ok((
                 Expr::Path(Path {
@@ -242,36 +247,49 @@ impl<'a> Parser<'a> {
         }
 
         let mut steps = Vec::new();
-        let start = match self.peek() {
-            Some(Tok::Slash) => {
-                self.i += 1;
-                if !self.starts_step() {
-                    return Ok((
-                        Expr::Path(Path {
-                            start: PathStart::Root,
-                            steps,
-                        }),
-                        1,
-                    ));
+        if !matches!(self.peek(), Some(Tok::Slash | Tok::SlashSlash)) {
+            let h = self.steps(&mut steps)?;
+            let start = PathStart::Context;
+            return Ok((Expr::Path(Path { start, steps }), Self::check(h + 1)?));
+        }
+        // An absolute path, as libxml2's xmlXPathCompLocationPath reads it:
+        // a lone '/' not followed by a step is skipped and the loop goes on,
+        // so `/ /x` is `/x`; after '//' the relative path may start with
+        // another '/' or '//' (`relative_path`).
+        let mut height = 0;
+        loop {
+            match self.peek() {
+                Some(Tok::SlashSlash) => {
+                    self.i += 1;
+                    steps.push(descendant_or_self());
+                    height = self.relative_path(&mut steps)?;
                 }
-                let h = self.steps(&mut steps)?;
-                return Ok((
-                    Expr::Path(Path {
-                        start: PathStart::Root,
-                        steps,
-                    }),
-                    Self::check(h + 1)?,
-                ));
+                Some(Tok::Slash) => {
+                    self.i += 1;
+                    if self.starts_step() {
+                        height = self.steps(&mut steps)?;
+                    }
+                }
+                _ => break,
             }
+        }
+        let start = PathStart::Root;
+        Ok((Expr::Path(Path { start, steps }), Self::check(height + 1)?))
+    }
+
+    /// libxml2's xmlXPathCompRelativeLocationPath, which skips a leading '/'
+    /// and takes a leading '//' as a descendant-or-self step: so `///x` is
+    /// `//x` and `$a///x` is `$a//x`, though `a///x` is an error.
+    fn relative_path(&mut self, steps: &mut Vec<Step>) -> Result<usize, XPathError> {
+        match self.peek() {
+            Some(Tok::Slash) => self.i += 1,
             Some(Tok::SlashSlash) => {
                 self.i += 1;
                 steps.push(descendant_or_self());
-                PathStart::Root
             }
-            _ => PathStart::Context,
-        };
-        let h = self.steps(&mut steps)?;
-        Ok((Expr::Path(Path { start, steps }), Self::check(h + 1)?))
+            _ => {}
+        }
+        self.steps(steps)
     }
 
     /// `/step` and `//step` repeated: the rest of a path after its first part.

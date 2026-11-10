@@ -639,8 +639,15 @@ impl Parser<'_> {
             let start = text_buf.len();
             text_buf.push_str(key);
             let value_start = text_buf.len();
-            dtd::decode_attribute_value_into(&a.value, &self.dtd.general, 0, &mut text_buf)
-                .map_err(|m| self.err(pos, m))?;
+            let lenient = self.dtd.has_external_subset || self.dtd.has_pe_refs;
+            dtd::decode_attribute_value_into(
+                &a.value,
+                &self.dtd.general,
+                0,
+                &mut text_buf,
+                lenient.then_some(&mut self.warnings),
+            )
+            .map_err(|m| self.err(pos, m))?;
             if self
                 .dtd
                 .attdef(raw_name, key)
