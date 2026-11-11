@@ -350,11 +350,11 @@ fn copy_children(
                     });
                 }
                 for a in doc.attributes(c) {
-                    let value = match edit {
-                        Edit::Replace(target) if *target == a => content,
-                        _ => doc.value(a).unwrap_or(""),
+                    let (value, valueless) = match edit {
+                        Edit::Replace(target) if *target == a => (content, false),
+                        _ => (doc.value(a).unwrap_or(""), doc.is_valueless(a)),
                     };
-                    let _ = b.add_attribute(doc.name(a).unwrap(), value);
+                    let _ = b.add_attribute_maybe_valueless(doc.name(a).unwrap(), value, valueless);
                 }
                 copy_children(doc, c, b, edit, content, names);
                 b.end_element();
@@ -550,7 +550,9 @@ impl Writer<'_> {
         s.push(' ');
         self.push_qname(q, s);
         let local = self.local(q);
-        if is_boolean(local) {
+        // libxml2 writes the value only when the attribute has one
+        // (children) and isn't boolean.
+        if is_boolean(local) || self.doc.is_valueless(a) {
             return;
         }
         let raw = self.doc.value(a).unwrap_or("");

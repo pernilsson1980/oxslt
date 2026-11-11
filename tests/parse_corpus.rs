@@ -97,6 +97,11 @@ fn every_corpus_file_parses() {
     for dir in ["conformance/xalan", "real", "cases", "docbook"] {
         xml_files(&root.join(dir), &mut files);
     }
+    // Cases run with --html have HTML inputs, not XML.
+    files.retain(|f| {
+        let args = f.parent().map(|d| d.join("args"));
+        !args.is_some_and(|a| fs::read_to_string(a).is_ok_and(|s| s.lines().any(|l| l == "--html")))
+    });
     files.sort();
     if files.len() < 100 {
         println!(

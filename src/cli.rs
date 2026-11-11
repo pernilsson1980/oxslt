@@ -47,6 +47,8 @@ struct Options {
     xinclude: bool,
     /// `--novalid`: no external DTD and no default attributes.
     novalid: bool,
+    /// `--html`: the inputs are HTML, parsed as libxml2's HTML parser does.
+    html: bool,
     /// `--path`: directories to search when a DTD or entity fails to load.
     paths: Vec<PathBuf>,
     /// `--catalogs`: the files in $SGML_CATALOG_FILES, used instead of
@@ -125,6 +127,7 @@ fn parse_args(args: &[OsString], stderr: &mut dyn Write) -> Result<Options, i32>
             },
             "--novalid" | "-novalid" => o.novalid = true,
             "--xinclude" | "-xinclude" => o.xinclude = true,
+            "--html" | "-html" => o.html = true,
             "--nowrite" | "-nowrite" => {
                 o.writes.files = WriteCheck::Refuse;
                 o.writes.mkdir = false;
@@ -289,13 +292,24 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
                 continue;
             }
         };
-        let source = match parse_with(
-            &bytes,
-            &mut names,
-            &options,
-            &loader,
-            &Some(input_loc.clone()),
-        ) {
+        // htmlReadFile never fails: errors are reported and the tree is
+        // whatever the parser built.
+        let parsed = if o.html {
+            let p = crate::html::parse(&bytes, &mut names, &display(&input_loc));
+            Ok(crate::parse::Parsed {
+                document: p.document,
+                warnings: p.warnings,
+            })
+        } else {
+            parse_with(
+                &bytes,
+                &mut names,
+                &options,
+                &loader,
+                &Some(input_loc.clone()),
+            )
+        };
+        let source = match parsed {
             Ok(p) => {
                 for w in &p.warnings {
                     let _ = writeln!(err, "warning: {w}");

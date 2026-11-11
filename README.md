@@ -2,7 +2,7 @@
 
 oxslt is a memory-safe replacement for the `xsltproc` command, written in Rust, for XSLT 1.0. The goal is a drop-in binary: a build system or distribution should be able to swap it in for `xsltproc` and get the same output bytes and the same exit codes, without changing anything else.
 
-**Status: proof of concept.** It isn't ready for production use yet. In a first round of drop-in testing, 17 Debian packages built with oxslt beside `xsltproc` gave identical output, written files included, for all 715 `xsltproc` calls (`tests/dropin`, `scripts/dropin.sh`).
+**Status: proof of concept.** It isn't ready for production use yet. In drop-in testing, the builds of 100 Debian packages ran oxslt beside `xsltproc` (`tests/dropin`, `scripts/dropin.sh`). All 2,493 `xsltproc` calls gave identical output, written files included. (Two of the builds fail for reasons that have nothing to do with XSLT.)
 
 ## What works
 
@@ -11,6 +11,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 - **XSLT 1.0 and XPath 1.0**, including imports and import precedence, keys, `xsl:number`, `document()`, `format-number()` and the xml, html and text output methods.
 - **EXSLT:** common (`exsl:node-set`, `exsl:object-type`, `exsl:document`), sets, strings, math, most of dates and times, and `dyn:evaluate`.
 - **XInclude** (`--xinclude`) and libxml2's XHTML serializer.
+- **HTML input** (`--html`): a port of libxml2's HTML parser, with its implied elements, auto-closing and encoding detection.
 - **DTDs and XML catalogs:** internal and external subsets, entities, default attributes and IDs, with catalogs from `XML_CATALOG_FILES` (or `SGML_CATALOG_FILES` with `--catalogs`).
 - **Conformance:** 1,691 of the 1,692 tests in Apache's xalan-test `conf` suite (the Lotus/Xalan contribution to the OASIS XSLT suite) give output identical to `xsltproc`'s.
 - **DocBook:** DocBook XSL's single-page HTML stylesheet (`html/docbook.xsl`) gives output identical to `xsltproc`'s for 237 DocBook 4.5 and 5 documents.
@@ -18,7 +19,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 
 ### Not supported yet
 
-- Extension elements other than `exsl:document` and `xt:document`, such as `func:function` and `saxon:output`.
+- Extension elements other than `exsl:document`, `xt:document` and `saxon:output`, such as `func:function`.
 - EXSLT's `date:add`, `date:difference`, `date:duration`, `date:seconds` and `date:sum`, and the crypto functions. `function-available()` reports them as available, as `xsltproc` does, but calling one is an error.
 - `xsltproc` options other than those listed below.
 - EBCDIC encodings.
@@ -43,6 +44,8 @@ The options are `xsltproc`'s:
 | `--nonet` | Accepted; oxslt never uses the network anyway |
 | `--novalid` | Don't load the external DTD or apply its default attributes |
 | `--xinclude` | Process XIncludes in the input documents |
+| `--html` | Parse the input documents as HTML |
+| `--catalogs` | Use the catalogs in `SGML_CATALOG_FILES` instead of `XML_CATALOG_FILES` |
 | `--nowrite`, `--nomkdir` | Refuse to write files with `exsl:document`, or to create directories |
 | `--writesubtree path` | Allow `exsl:document` to write only below `path` |
 | `--path paths` | Directories to search for DTDs and entities |

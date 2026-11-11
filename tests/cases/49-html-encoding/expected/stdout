@@ -1,0 +1,11 @@
+E 0 html 1
+E 1 head 1
+E 2 title 1
+T[cafй]
+E 2 meta 1
+A http-equiv=[Content-Type]
+A content=[text/html; charset=windows-1251]
+E 1 body 1
+E 2 p 1
+A title=[йр]
+T[йр and more]

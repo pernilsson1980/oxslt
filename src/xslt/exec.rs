@@ -1784,12 +1784,13 @@ impl<'a> Transform<'a> {
                         .map(|x| (x.prefix, x.uri))
                         .collect()
                 };
-                let attrs: Vec<(QName, String)> = self.docs[d]
+                let attrs: Vec<(QName, String, bool)> = self.docs[d]
                     .attributes(n.node)
                     .map(|a| {
                         (
                             self.docs[d].name(a).unwrap(),
                             self.docs[d].value(a).unwrap_or("").to_string(),
+                            self.docs[d].is_valueless(a),
                         )
                     })
                     .collect();
@@ -1799,8 +1800,12 @@ impl<'a> Transform<'a> {
                 for b in bindings {
                     out.add_namespace(b);
                 }
-                for (q, v) in attrs {
-                    out.add_attribute(q, v).map_err(Self::output_err)?;
+                for (q, v, valueless) in attrs {
+                    if valueless {
+                        out.add_valueless_attribute(q).map_err(Self::output_err)?;
+                    } else {
+                        out.add_attribute(q, v).map_err(Self::output_err)?;
+                    }
                 }
                 for c in children {
                     self.copy_of(NodeRef::new(n.doc, c), false)?;
@@ -1810,13 +1815,13 @@ impl<'a> Transform<'a> {
             }
             NodeKind::Attribute { name, .. } => {
                 let value = self.docs[d].value(n.node).unwrap_or("").to_string();
-                if self
-                    .out
-                    .last_mut()
-                    .unwrap()
-                    .add_attribute(name, value)
-                    .is_err()
-                {
+                let out = self.out.last_mut().unwrap();
+                let added = if self.docs[d].is_valueless(n.node) {
+                    out.add_valueless_attribute(name)
+                } else {
+                    out.add_attribute(name, value)
+                };
+                if added.is_err() {
                     return Err(ExecError::Runtime(
                         "runtime error: Attribute nodes must be added before any child nodes to an element.".into(),
                     ));
@@ -2754,7 +2759,11 @@ fn strip_space(doc: Document, ss: &Stylesheet, names: &mut NamePool) -> Document
                         b.add_ns_decl(*d);
                     }
                     for a in doc.attributes(c) {
-                        let _ = b.add_attribute(doc.name(a).unwrap(), doc.value(a).unwrap_or(""));
+                        let _ = b.add_attribute_maybe_valueless(
+                            doc.name(a).unwrap(),
+                            doc.value(a).unwrap_or(""),
+                            doc.is_valueless(a),
+                        );
                     }
                     for value in ids.get(&c).into_iter().flatten() {
                         b.add_id(value);

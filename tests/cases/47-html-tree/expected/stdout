@@ -1,0 +1,88 @@
+C[ before ]
+E 0 html 3
+E 1 head 3
+E 2 title 3
+T[Tree & such]
+T[
+]
+E 2 script 4
+T[if (a < b && c) { x(""); }]
+T[
+]
+E 1 body 5
+E 2 p 5
+A class=[intro]
+A id=[first]
+I first
+T[One ]
+E 3 b 5
+T[bold]
+E 4 i 5
+T[both]
+T[ after
+]
+E 2 p 6
+T[Two  © &unknown; &amp AB  ]
+E 3 br 6
+T[
+]
+E 2 ul 7
+E 3 li 7
+T[a]
+E 3 li 7
+T[b]
+E 3 li 7
+A name=[x]
+T[c]
+T[
+]
+E 2 table 8
+E 3 tr 8
+E 4 td 8
+T[1]
+E 4 td 8
+T[2]
+E 3 tr 8
+E 4 td 8
+T[3]
+T[
+]
+E 2 a 9
+A name=[anchor]
+I anchor
+A href=[#first]
+T[link]
+T[
+]
+E 2 form 10
+E 3 input 10
+A type=[checkbox]
+A checked=[checked]
+A disabled=[disabled]
+A value=[v]
+E 3 select 10
+E 4 option 10
+A selected=[selected]
+T[o]
+T[
+]
+P php[echo "pi" ?]
+T[
+
+]
+E 2 rect 13
+A width=[1/]
+E 3 bar 13
+T[text]
+T[
+]
+E 3 p 14
+T[<not a tag> < b>  p>
+
+]
+E 3 pre 16
+T[
+  keep   spaces
+]
+T[
+]

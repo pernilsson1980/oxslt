@@ -1,0 +1,18 @@
+<!-- before -->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<TITLE>Tree &amp; such</TITLE>
+<script>if (a < b && c) { x("</p>"); }</script>
+<p CLASS=intro id=first>One <b>bold<i>both</b> after
+<p>Two &nbsp;&copy; &unknown; &amp &#65;&#x42; &#0; <br>
+<ul><li>a<li>b<li name=x>c</ul>
+<table><tr><td>1<td>2<tr><td>3</table>
+<a name=anchor href=#first>link</a>
+<form><input type=checkbox checked disabled value=v><select><option selected>o</select></form>
+<?php echo "pi" ?>
+<html lang=en><body class=again><head></head>
+<svg:rect width=1/><foo:bar>text</foo:bar>
+<p>&lt;not a tag&gt; < b> </ p>
+</div></span>
+<pre>
+  keep   spaces
+</pre>

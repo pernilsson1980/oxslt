@@ -10,7 +10,7 @@
 //! Names are interned in a [`NamePool`] shared by every document and the
 //! stylesheet of a transform, so name comparisons are integer comparisons.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A fast hasher for keys made of interned symbols ([`Sym`]) and node
 /// indices: an Fx-style multiply-rotate.
@@ -272,6 +272,10 @@ pub struct Document {
     ids: HashMap<String, NodeId>,
     /// Unparsed entities the DTD declares, by name, to their URI.
     unparsed_entities: HashMap<String, String>,
+    /// Attributes with no value at all, as HTML's `<p foo>` gives (libxml2
+    /// leaves them without children). XPath sees "", but libxml2's HTML
+    /// serializer writes just the name, and copies keep that.
+    valueless: HashSet<NodeId>,
     /// The input had a `<!DOCTYPE>`. The PoC doesn't process DTDs.
     pub has_doctype: bool,
     /// The document's URL as libxml2 records it (`doc->URL`): the path as
@@ -348,6 +352,11 @@ impl Document {
     /// An unparsed entity's URI, for XSLT's `unparsed-entity-uri()`.
     pub fn unparsed_entity_uri(&self, name: &str) -> Option<&str> {
         self.unparsed_entities.get(name).map(String::as_str)
+    }
+
+    /// An attribute without a value (see `valueless`).
+    pub fn is_valueless(&self, id: NodeId) -> bool {
+        self.valueless.contains(&id)
     }
 
     pub fn text_kind(&self, id: NodeId) -> TextKind {
@@ -517,6 +526,7 @@ impl Builder {
                 text_kinds: HashMap::new(),
                 ids: HashMap::new(),
                 unparsed_entities: HashMap::new(),
+                valueless: HashSet::new(),
                 has_doctype: false,
                 url: None,
                 fragment: false,
@@ -624,6 +634,28 @@ impl Builder {
             *attr_count += 1;
         }
         Ok(())
+    }
+
+    /// An attribute without a value: XPath sees "".
+    pub fn add_valueless_attribute(&mut self, name: QName) -> Result<(), TooLarge> {
+        self.add_attribute(name, "")?;
+        let id = NodeId(self.doc.nodes.len() as u32 - 1);
+        self.doc.valueless.insert(id);
+        Ok(())
+    }
+
+    /// `add_attribute`, or `add_valueless_attribute` when `valueless`.
+    pub fn add_attribute_maybe_valueless(
+        &mut self,
+        name: QName,
+        value: &str,
+        valueless: bool,
+    ) -> Result<(), TooLarge> {
+        if valueless {
+            self.add_valueless_attribute(name)
+        } else {
+            self.add_attribute(name, value)
+        }
     }
 
     pub fn end_element(&mut self) {

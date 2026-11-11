@@ -30,6 +30,9 @@ struct Pending {
     name: QName,
     namespaces: Vec<Binding>,
     attributes: Vec<(QName, String)>,
+    /// Attributes copied without a value (HTML's `<p foo>`), by expanded
+    /// name.
+    valueless: Vec<(Option<Sym>, Sym)>,
     /// Namespace nodes added after the element's own name is declared: a
     /// literal result element's inherited namespaces.
     late_namespaces: Vec<Binding>,
@@ -69,6 +72,7 @@ impl ResultTree {
             name,
             namespaces: Vec::new(),
             attributes: Vec::new(),
+            valueless: Vec::new(),
             late_namespaces: Vec::new(),
             attribute_decls: Vec::new(),
         });
@@ -110,6 +114,16 @@ impl ResultTree {
         {
             Some(existing) => *existing = (name, value),
             None => p.attributes.push((name, value)),
+        }
+        p.valueless.retain(|n| *n != name.expanded());
+        Ok(())
+    }
+
+    /// Adds a copy of an attribute that has no value at all.
+    pub fn add_valueless_attribute(&mut self, name: QName) -> Result<(), OutputError> {
+        self.add_attribute(name, String::new())?;
+        if let Some(p) = &mut self.pending {
+            p.valueless.push(name.expanded());
         }
         Ok(())
     }
@@ -345,6 +359,7 @@ impl ResultTree {
         }
 
         // Attributes in a namespace need a prefix bound to it.
+        let valueless = p.valueless;
         let mut attributes = p.attributes;
         for (q, _) in &mut attributes {
             let Some(uri) = q.ns.filter(|&u| u != empty) else {
@@ -383,7 +398,8 @@ impl ResultTree {
             self.builder.add_ns_decl(NsDecl { prefix, uri });
         }
         for (q, v) in &attributes {
-            self.builder.add_attribute(*q, v)?;
+            self.builder
+                .add_attribute_maybe_valueless(*q, v, valueless.contains(&q.expanded()))?;
         }
         self.scopes.push(decls);
         self.open.push(name);

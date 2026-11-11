@@ -18,7 +18,7 @@ Roadmap step 3, full XSLT 1.0 and EXSLT, is done (2026-11-09). Imports, keys, `x
 
 Drop-in testing on Debian builds started 2026-11-09 (`tests/dropin`, `scripts/dropin.sh`): 17 bookworm packages are built offline with a wrapper as `/usr/bin/xsltproc` that runs oxslt and xsltproc on every call and records differences. It found and fixed: catalog resolution of command-line stylesheets, stylesheet-only runs, `document()` of a result tree fragment, EXSLT dates, `dyn:evaluate`, `--xinclude`, variables in `xsl:number` patterns, undeclared command-line parameters, leaked `exclude-result-prefixes` from included modules, `--` in comments, and libxml2's XHTML serializer. Since `exsl:document` (2026-11-10), all 715 calls match, including every file `exsl:document` writes (DocBook man pages and chunked HTML). The wrapper compares written files by before/after snapshots, so builds run serially.
 
-The second batch (2026-11-10, `tests/dropin/packages-2.txt`, 83 packages, run with `--list packages-2.txt` in groups) found and fixed: `--catalogs`, `-` as standard input, libxml2's extra slashes in XPath paths, undeclared entities in attribute values, ties between globals (first declaration wins), compile errors without inputs (exit 5), and the URL of a module found through `--path`. After the fixes, 1,717 of 1,778 calls match; the 61 left are lirc's, which use `--html`. Two builds fail for reasons unrelated to xsltproc: devscripts (its Python install step) and grml2usb (amd64 only).
+The second batch (2026-11-10, `tests/dropin/packages-2.txt`, 83 packages, run with `--list packages-2.txt` in groups) found and fixed: `--catalogs`, `-` as standard input, libxml2's extra slashes in XPath paths, undeclared entities in attribute values, ties between globals (first declaration wins), compile errors without inputs (exit 5), and the URL of a module found through `--path`. After the fixes all 1,778 calls match, lirc's 61 `--html` calls included since `--html` was added (2026-11-11). Two builds fail for reasons unrelated to xsltproc: devscripts (its Python install step) and grml2usb (amd64 only).
 
 Still to do in PoC scope: EBCDIC (conformance `output22`, the only failing conformance test).
 
@@ -63,10 +63,12 @@ scripts/fetch-docbook.sh                             # fetch DocBook man pages i
 scripts/fetch-docbook-xsl.sh                         # copy the container's DocBook XSL, DTDs and catalogs into tests/docbook-xsl/
 scripts/record-docbook-html.sh                       # record xsltproc's html/docbook.xsl output for tests/docbook/ (~1 min)
 cargo test --release --test docbook_html             # the step 3 gate: DocBook HTML identical to xsltproc
-cargo +nightly fuzz run parse -- -max_total_time=300 # fuzz the parser for 5 minutes (also: xpath, transform)
+cargo +nightly fuzz run parse -- -max_total_time=300 # fuzz the parser for 5 minutes (also: xpath, transform, html)
 scripts/record-xpath-oracle.sh                       # re-record tests/xpath/expected.txt after editing expressions.txt
 scripts/bench.sh                                     # benchmark against xsltproc, natively in a container (~2.5 min)
 scripts/record-expected.sh                           # re-record expected output for tests/cases/ (our own cases only)
+scripts/html-diff.sh fuzz 5000 1                     # compare --html trees with xsltproc's on generated HTML (also: corpus)
+scripts/gen-html-tables.py HTMLparser.c > src/html/tables.rs  # regenerate the HTML parser's tables
 OXSLT_UPDATE_KNOWN_FAILURES=1 cargo test --test differential   # rewrite tests/known-failures.txt
 ```
 
@@ -169,6 +171,13 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - Not done: EBCDIC.
 - **`exsl:document`** (`exec::Transform::document_element`, libxslt's xsltDocumentElem): the `href` is resolved against the file being written (the `-o` file, or an enclosing `exsl:document`'s), checked as xsltCheckWrite checks it (making missing directories), and the body written with the element's own output attributes only; the main `xsl:output`'s `cdata-section-elements` still applies. An extension element is recognised by its prefix, as libxslt's xsltCheckExtPrefix does, and inherited namespaces with an extension prefix are skipped. Errors reported this way (a refused write, a missing `href`) let the transform finish but fail it: exit 9, or 11 with `-o` (any failure with `-o` is 11, as in xsltproc). `tests/cases/35`–`38`.
 - `src/xinclude.rs`: `--xinclude`, as libxml2 2.9.14 processes it, for inputs and `document()` loads: the document is rebuilt with each include replaced (text kept apart at include boundaries, as libxml2's marker nodes keep it), fallbacks, text includes, the shorthand, `element()`, `xpointer()` and `xmlns()` XPointer forms, and the `xml:base` fixup. An XInclude error makes xsltproc skip the input (exit 6). `tests/cases/27`, `28`.
+- `src/html/`: `--html`, a function-by-function port of libxml2 2.9.14's HTML parser (HTMLparser.c's `htmlReadFile` path) and the tree its SAX2 handler builds. `tables.rs` (element table, auto-close pairs, entities) is generated by `scripts/gen-html-tables.py`.
+  - Implied `html`, `head`, `body` and `p`, auto-closing (htmlStartClose, end-tag priorities), misplaced `html`/`head`/`body` dropped, script and style as CDATA up to `</` and a letter, `areBlanks`, names lowercased and cut at 100 characters.
+  - No namespaces: an element name loses its prefix (`xmlSplitQName`), `xmlns` is an ordinary attribute. Boolean attributes without a value get their name; others stay **valueless** (`Document::is_valueless`), which copies keep and the HTML serializer writes as a bare name. `id`, and `name` on `a`, are IDs.
+  - **Encoding as libxml2 finds it**: the first 4 bytes, then at the first non-ASCII byte a look-ahead for a `http-equiv` charset in what's been read (else ISO-8859-1), and `<meta>` charsets. The input is read in 4000-byte chunks at libxml2's `GROW` points and converted chunk by chunk, so a later charset only affects input not yet read, as in libxml2. Encoding names go through libxml2's own list, then glibc iconv's rules (`find_handler`).
+  - After invalid UTF-8 (`xmlNextChar`'s error, recovery off) libxml2 sets `disableSAX`: text, comments and PIs are dropped from then on, elements still built. Ported.
+  - Approximations: a name over 100 characters restarts at a 4000-byte read, where libxml2 restarts only if `realloc` moved its buffer; Unicode name classes stand in for libxml2's `IS_LETTER`; UCS-4 and EBCDIC input aren't detected.
+  - `scripts/html-diff.sh` compares trees with xsltproc's on real HTML files and on generated broken HTML (`tests/html-diff/`); 2,752 real files and over 40,000 generated ones matched, apart from the restart approximation.
 - `src/cli.rs`: xsltproc's options and exit codes.
   - Stylesheets and inputs named on the command line open through the catalogs, as libxml2's entity loader opens them; the resolved path is the document's location.
   - A stylesheet with no input is compiled and nothing transformed (exit 0), as xsltproc does. Compile errors are exit 5 with or without inputs.
@@ -196,6 +205,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 - `fuzz/`: cargo-fuzz targets, run with the nightly toolchain.
   - `parse`: any input parses or errors, never panics, and the tree is consistent.
   - `xpath`: any string compiles or errors, and evaluation never panics or overflows. Node-sets stay sorted.
+  - `html`: any input parses as HTML without panicking, and the tree is consistent. Seed it with `tests/html-diff/gen.py`.
   - `transform`: a stylesheet, a NUL byte and an input; compiling, transforming and serialising never panic. It runs with a work budget and `ResourceLoader::none()`, which reads no files. Seed it with the conformance tests and `tests/cases` (stylesheet, NUL, input).
 - `tests/dropin/`, `scripts/dropin.sh`: drop-in testing on Debian package builds (offline container, comparing wrapper as `/usr/bin/xsltproc`). Results in `target/dropin/out`.
 - `tests/cli.rs`: command-line behaviour the differential cases can't express (no input file, missing stylesheet, standard input, `--catalogs` unset).
@@ -205,7 +215,6 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 
 ## Known differences from xsltproc
 
-- **`--html`** (libxml2's HTML parser for inputs) isn't supported; oxslt rejects the option. lirc's build uses it.
 - **Extension elements:** `exsl:document`, `xt:document` and `saxon:output` (with a static `file`) work; `redirect:write` (libxslt's Xalan namespace), `libxslt:debug` and `func:result` don't, though `element-available()` reports them available as xsltproc does. DocBook's chunker asks for `saxon:output` first and names chunks by the answer. `func:function` is a top-level element, so it isn't available, and isn't supported.
 - **`exsl:object-type(exsl:node-set($rtf))` says "RTF"**, where libexslt says "node-set": oxslt's result tree fragments are node-sets, so it can't tell a converted one apart.
 - **math:sin and the other transcendental functions** use the platform's libm, which can differ from glibc's in the last bit.
@@ -216,7 +225,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 
 - **The contract is compatibility with the `xsltproc` command line.** Match its output bytes, flag behaviour and exit codes. Build scripts depend on all three.
 - **No C API for now.** Don't expose libxml2-style node structures. If a C API is added later, it goes in a separate crate and must not shape the core design.
-- **Flags to support first:** `-o`/`--output`, `--param`, `--stringparam`, `--nonet`, `--novalid`, `--xinclude`, `--path`. Profiling and timing flags can wait.
+- **Flags to support first:** `-o`/`--output`, `--param`, `--stringparam`, `--nonet`, `--novalid`, `--xinclude`, `--path`, `--html`, `--catalogs`. Profiling and timing flags can wait.
 - **Exit codes** must match xsltproc's documented codes.
 - **Later work:**
   - the EXSLT functions listed but not implemented (dates, `dyn:evaluate`, crypto)

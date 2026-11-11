@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod cli;
 pub mod dtd;
 pub mod encoding;
+pub mod html;
 pub mod parse;
 pub mod serialize;
 pub mod tree;

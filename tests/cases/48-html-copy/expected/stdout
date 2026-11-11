@@ -1,0 +1,39 @@
+<!-- before --><html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Tree &amp; such</title>
+<script>if (a < b && c) { x(""); }</script>
+</head>
+<body>
+<p class="intro" id="first">One <b>bold<i>both</i></b> after
+</p>
+<p>Two  © &amp;unknown; &amp;amp AB  <br>
+</p>
+<ul>
+<li>a</li>
+<li>b</li>
+<li name="x">c</li>
+</ul>
+<table>
+<tr>
+<td>1</td>
+<td>2</td>
+</tr>
+<tr><td>3</td></tr>
+</table>
+<a name="anchor" href="#first">link</a>
+<form>
+<input type="checkbox" checked disabled value="v"><select><option selected>o</option></select>
+</form>
+<?php echo "pi" ?>
+
+<rect width="1/"><bar>text</bar>
+<p>&lt;not a tag&gt; &lt; b&gt;  p&gt;
+
+</p>
+<pre>
+  keep   spaces
+</pre>
+</rect>
+</body>
+</html>
