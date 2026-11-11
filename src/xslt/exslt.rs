@@ -133,7 +133,7 @@ pub fn call(
     }
     let result = match (ns, local) {
         (COMMON | SAXON | LIBXSLT | XT, "node-set") => node_set(args, env),
-        (COMMON, "object-type") => object_type(args, env),
+        (COMMON, "object-type") => object_type(args),
         (SETS, _) => sets(local, args, env),
         (STRINGS, _) => strings(local, args, env, token),
         (MATH, _) => math(local, args, env),
@@ -155,11 +155,11 @@ fn arity(args: &[Value], min: usize, max: usize) -> Result<(), XPathError> {
     }
 }
 
+/// A node-set argument; a fragment counts as the node-set of its root
+/// (xmlXPathPopNodeSet).
 fn node_set_arg(v: &Value) -> Result<&[NodeRef], XPathError> {
-    match v {
-        Value::NodeSet(ns) => Ok(ns),
-        _ => Err(XPathError::type_error("Invalid type")),
-    }
+    v.nodes_or_tree()
+        .ok_or_else(|| XPathError::type_error("Invalid type"))
 }
 
 /// A document holding one text node, even an empty one.
@@ -175,30 +175,28 @@ fn value(v: Value) -> Result<Outcome, XPathError> {
 
 // ---------- common ----------
 
-/// exsl:node-set: a node-set as it is; anything else becomes a text node.
+/// exsl:node-set: a node-set as it is, a fragment as the node-set of its
+/// root; anything else becomes a text node.
 fn node_set(args: &[Value], env: &Env) -> Result<Outcome, XPathError> {
     arity(args, 1, 1)?;
     match &args[0] {
         Value::NodeSet(ns) => value(Value::NodeSet(ns.clone())),
+        Value::Tree(root) => value(Value::NodeSet(vec![*root])),
         v => Ok(Outcome::Fragment(Box::new(text_fragment(
             &xpath::to_string(v, env),
         )))),
     }
 }
 
-/// exsl:object-type. A result tree fragment is a node-set of one
-/// fragment's root in oxslt, reported as "RTF". libexslt says "node-set"
-/// once exsl:node-set() has converted it; oxslt can't tell that apart.
-fn object_type(args: &[Value], env: &Env) -> Result<Outcome, XPathError> {
+/// exsl:object-type.
+fn object_type(args: &[Value]) -> Result<Outcome, XPathError> {
     arity(args, 1, 1)?;
     let t = match &args[0] {
         Value::String(_) => "string",
         Value::Number(_) => "number",
         Value::Boolean(_) => "boolean",
-        Value::NodeSet(ns) => match ns.as_slice() {
-            [n] if n.ns == 0 && env.doc(*n).fragment && n.node == env.doc(*n).root() => "RTF",
-            _ => "node-set",
-        },
+        Value::NodeSet(_) => "node-set",
+        Value::Tree(_) => "RTF",
     };
     value(Value::String(t.into()))
 }
@@ -418,9 +416,9 @@ fn split(string: &str, pattern: &str) -> Vec<String> {
 fn replace(args: &[Value], env: &Env) -> String {
     let string = xpath::to_string(&args[0], env);
     let strings = |v: &Value| -> Vec<String> {
-        match v {
-            Value::NodeSet(ns) => ns.iter().map(|&n| env.string_value(n)).collect(),
-            v => vec![xpath::to_string(v, env)],
+        match v.nodes_or_tree() {
+            Some(ns) => ns.iter().map(|&n| env.string_value(n)).collect(),
+            None => vec![xpath::to_string(v, env)],
         }
     };
     let search = strings(&args[1]);
@@ -430,7 +428,7 @@ fn replace(args: &[Value], env: &Env) -> String {
     let replace_list = strings(&args[2]);
     let replacement = |i: usize| -> &str {
         match &args[2] {
-            Value::NodeSet(_) => replace_list.get(i).map_or("", String::as_str),
+            Value::NodeSet(_) | Value::Tree(_) => replace_list.get(i).map_or("", String::as_str),
             _ if i == 0 => &replace_list[0],
             _ => "",
         }

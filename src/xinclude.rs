@@ -196,6 +196,7 @@ impl Ctx<'_> {
         let mut new = b.finish();
         new.url = doc.url.clone();
         new.fragment = doc.fragment;
+        new.html = doc.html;
         new
     }
 

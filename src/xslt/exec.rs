@@ -648,10 +648,10 @@ impl<'a> Transform<'a> {
                 self.docs.push(doc);
                 let id = u32::try_from(self.docs.len() - 1)
                     .map_err(|_| ExecError::Runtime("Too many documents".into()))?;
-                Ok(Value::NodeSet(vec![NodeRef::new(
+                Ok(Value::Tree(NodeRef::new(
                     id,
                     self.docs.last().unwrap().root(),
-                )]))
+                )))
             }
         }
     }
@@ -1481,8 +1481,9 @@ impl<'a> Transform<'a> {
                 body,
             } => self.copy(focus, attribute_sets, body),
             Instr::CopyOf { select, location } => match self.eval(select, focus, location)? {
-                Value::NodeSet(nodes) => {
-                    for n in nodes {
+                // A fragment is copied as its root: its content.
+                v @ (Value::NodeSet(_) | Value::Tree(_)) => {
+                    for &n in v.nodes_or_tree().unwrap_or_default() {
                         self.copy_of(n, true)?;
                     }
                     Ok(())
@@ -2392,9 +2393,8 @@ impl XsltFunctions<'_> {
         // (XPATH_XSLT_TREE isn't XPATH_NODESET), so it's resolved against
         // the instruction, not the fragment. DocBook's man pages depend on
         // it: document($uri) with $uri built by xsl:with-param content.
-        let fragment = |ns: &[NodeRef]| matches!(ns, [n] if n.ns == 0 && env.doc(*n).fragment && n.node == env.doc(*n).root());
         match &args[0] {
-            Value::NodeSet(ns) if !fragment(ns) => {
+            Value::NodeSet(ns) => {
                 for &n in ns {
                     let base = match second {
                         Some(_) => given_base.clone(),
@@ -2601,13 +2601,14 @@ impl Functions for XsltFunctions<'_> {
                         out.extend_from_slice(nodes);
                     }
                 };
-                match &args[1] {
-                    Value::NodeSet(ns) => {
+                // xsltKeyFunction takes a fragment as a node-set too.
+                match args[1].nodes_or_tree() {
+                    Some(ns) => {
                         for &n in ns {
                             look(&env.string_value_cow(n));
                         }
                     }
-                    v => look(&xpath::to_string(v, env)),
+                    None => look(&xpath::to_string(&args[1], env)),
                 }
                 out.sort_unstable();
                 out.dedup();
@@ -2903,6 +2904,7 @@ fn strip_space(doc: Document, ss: &Stylesheet, names: &mut NamePool) -> Document
     walk(&doc, doc.root(), false, &mut b, &strips, &ids, xml, space);
     let mut stripped = b.finish();
     stripped.url = doc.url.clone();
+    stripped.html = doc.html;
     stripped
 }
 

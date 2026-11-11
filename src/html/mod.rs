@@ -48,7 +48,8 @@ pub fn parse(bytes: &[u8], names: &mut NamePool, file: &str) -> Parsed {
     let mut p = Parser::new(bytes, file);
     p.parse_document();
     let warnings = std::mem::take(&mut p.warnings);
-    let document = p.tree.build(names);
+    let mut document = p.tree.build(names);
+    document.html = true;
     Parsed { document, warnings }
 }
 

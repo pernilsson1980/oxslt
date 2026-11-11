@@ -46,6 +46,25 @@ pub enum Value {
     Boolean(bool),
     Number(f64),
     String(String),
+    /// A result tree fragment (libxml2's XPATH_XSLT_TREE): the root of a
+    /// variable's or parameter's content. XSLT 1.0 lets it be used only as
+    /// a string, number or boolean; libxml2 also lets `count()`, `sum()`,
+    /// the name functions, `id()` and comparisons treat it as a node-set of
+    /// its root, but path steps, predicates and unions on it are type
+    /// errors. `exsl:node-set()` turns it into a node-set.
+    Tree(NodeRef),
+}
+
+impl Value {
+    /// The nodes of a node-set, or a fragment as the node-set of its root:
+    /// for the operations that accept either (xmlXPathStackIsNodeSet).
+    pub fn nodes_or_tree(&self) -> Option<&[NodeRef]> {
+        match self {
+            Value::NodeSet(n) => Some(n),
+            Value::Tree(root) => Some(std::slice::from_ref(root)),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

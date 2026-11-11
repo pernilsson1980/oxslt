@@ -658,6 +658,7 @@ fn matches_test(test: &NodeTest, axis: Axis, n: NodeRef, env: &Env) -> bool {
 pub fn boolean(v: &Value) -> bool {
     match v {
         Value::NodeSet(n) => !n.is_empty(),
+        Value::Tree(_) => true,
         Value::Boolean(b) => *b,
         Value::Number(x) => *x != 0.0 && !x.is_nan(),
         Value::String(s) => !s.is_empty(),
@@ -669,7 +670,7 @@ pub fn to_number(v: &Value, env: &Env) -> f64 {
         Value::Number(x) => *x,
         Value::Boolean(b) => f64::from(u8::from(*b)),
         Value::String(s) => number::from_string(s),
-        Value::NodeSet(_) => number::from_string(&to_string(v, env)),
+        Value::NodeSet(_) | Value::Tree(_) => number::from_string(&to_string(v, env)),
     }
 }
 
@@ -684,6 +685,7 @@ pub fn to_str<'v>(v: &'v Value, env: &'v Env) -> std::borrow::Cow<'v, str> {
         Value::NodeSet(n) => n
             .first()
             .map_or(Cow::Borrowed(""), |&first| env.string_value_cow(first)),
+        Value::Tree(root) => env.string_value_cow(*root),
     }
 }
 
@@ -695,11 +697,20 @@ pub fn to_string(v: &Value, env: &Env) -> String {
         Value::NodeSet(n) => n
             .first()
             .map_or(String::new(), |&first| env.string_value(first)),
+        Value::Tree(root) => env.string_value(*root),
     }
 }
 
 fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
     use Value::*;
+    // libxml2's comparisons take a fragment as the node-set of its root.
+    if matches!(a, Tree(_)) || matches!(b, Tree(_)) {
+        let as_set = |v: &Value| match v {
+            Tree(root) => NodeSet(vec![*root]),
+            v => v.clone(),
+        };
+        return compare(op, &as_set(a), &as_set(b), env);
+    }
     match (a, b) {
         (NodeSet(x), NodeSet(y)) => {
             if matches!(op, CompareOp::Eq | CompareOp::Ne) {
@@ -714,25 +725,24 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
                     // with thousands).
                     let (small, big) = if x.len() <= y.len() { (x, y) } else { (y, x) };
                     if small.len() <= 8 {
-                        let values: Vec<_> =
-                            small.iter().map(|&n| env.string_value_cow(n)).collect();
+                        let values: Vec<_> = small.iter().map(|&n| eq_key(env, n)).collect();
                         return big.iter().any(|&n| {
-                            let v = env.string_value_cow(n);
+                            let v = eq_key(env, n);
                             values.contains(&v)
                         });
                     }
-                    let set: std::collections::HashSet<std::borrow::Cow<'_, str>> =
-                        small.iter().map(|&n| env.string_value_cow(n)).collect();
-                    return big.iter().any(|&n| set.contains(&env.string_value_cow(n)));
+                    let set: std::collections::HashSet<(u32, std::borrow::Cow<'_, str>)> =
+                        small.iter().map(|&n| eq_key(env, n)).collect();
+                    return big.iter().any(|&n| set.contains(&eq_key(env, n)));
                 }
-                let ys: std::collections::HashSet<std::borrow::Cow<'_, str>> =
-                    y.iter().map(|&n| env.string_value_cow(n)).collect();
+                let ys: std::collections::HashSet<(u32, std::borrow::Cow<'_, str>)> =
+                    y.iter().map(|&n| eq_key(env, n)).collect();
                 // Some pair differs unless every value on both sides is one and the same.
                 if ys.len() > 1 {
                     return true;
                 }
                 let only = ys.iter().next().expect("y is not empty");
-                x.iter().any(|&n| env.string_value_cow(n) != *only)
+                x.iter().any(|&n| eq_key(env, n) != *only)
             } else {
                 let ys: Vec<f64> = y
                     .iter()
@@ -748,6 +758,51 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
         (other, NodeSet(y)) => compare_nodes_with(op, y, other, env, true),
         _ => compare_atomic(op, a, b, env),
     }
+}
+
+/// xmlXPathStringHash: the first two bytes of a string.
+fn str_hash(s: &str) -> u32 {
+    let b = s.as_bytes();
+    match b {
+        [] => 0,
+        [x] => u32::from(*x),
+        [x, y, ..] => u32::from(*x) + (u32::from(*y) << 8),
+    }
+}
+
+/// What libxml2's `=` and `!=` compare a node by: xmlXPathNodeValHash and
+/// the string value. Two nodes are equal when both match. The hash is the
+/// value's first two bytes, except for a document node, where libxml2
+/// hashes its first element child (or first child) instead, and an HTML
+/// document node, which hashes as 0. So a fragment like `<a>1</a><b>2</b>`
+/// isn't equal to "12".
+fn eq_key<'e>(env: &'e Env, n: NodeRef) -> (u32, std::borrow::Cow<'e, str>) {
+    let value = env.string_value_cow(n);
+    let doc = env.doc(n);
+    let hash = if n.ns == 0 && matches!(doc.kind(n.node), NodeKind::Root) {
+        if doc.html {
+            0
+        } else {
+            let children: Vec<_> = doc.children(n.node).collect();
+            let first = children
+                .iter()
+                .find(|&&c| matches!(doc.kind(c), NodeKind::Element { .. }))
+                .or(children.first());
+            match first {
+                Some(&c) => match doc.kind(c) {
+                    NodeKind::Element { .. }
+                    | NodeKind::Text(_)
+                    | NodeKind::Comment(_)
+                    | NodeKind::Pi { .. } => str_hash(&doc.string_value(c)),
+                    _ => 0,
+                },
+                None => 0,
+            }
+        }
+    } else {
+        str_hash(&value)
+    };
+    (hash, value)
 }
 
 /// A node-set against a non-node-set value. `swapped`: the node-set was on
@@ -776,8 +831,15 @@ fn compare_nodes_with(
             .iter()
             .any(|&n| ordered(number::from_string(&env.string_value_cow(n)), *q)),
         Value::String(s) => match op {
-            CompareOp::Eq => nodes.iter().any(|&n| env.string_value_cow(n) == s.as_str()),
-            CompareOp::Ne => nodes.iter().any(|&n| env.string_value_cow(n) != s.as_str()),
+            // xmlXPathEqualNodeSetString compares value hashes first.
+            CompareOp::Eq => {
+                let key = (str_hash(s), std::borrow::Cow::Borrowed(s.as_str()));
+                nodes.iter().any(|&n| eq_key(env, n) == key)
+            }
+            CompareOp::Ne => {
+                let key = (str_hash(s), std::borrow::Cow::Borrowed(s.as_str()));
+                nodes.iter().any(|&n| eq_key(env, n) != key)
+            }
             _ => {
                 let q = number::from_string(s);
                 nodes
@@ -785,7 +847,7 @@ fn compare_nodes_with(
                     .any(|&n| ordered(number::from_string(&env.string_value(n)), q))
             }
         },
-        Value::NodeSet(_) => unreachable!("handled by compare"),
+        Value::NodeSet(_) | Value::Tree(_) => unreachable!("handled by compare"),
     }
 }
 
@@ -852,8 +914,10 @@ fn call(f: &Function, args: &[Expr], env: &Env, focus: &Focus) -> R<Value> {
 fn node_arg(f: CoreFn, args: &[Value], focus: &Focus) -> R<Option<NodeRef>> {
     match args.first() {
         None => Ok(Some(focus.node)),
-        Some(Value::NodeSet(n)) => Ok(n.first().copied()),
-        Some(_) => Err(XPathError::type_error(format!("{f:?} needs a node-set"))),
+        Some(v) => match v.nodes_or_tree() {
+            Some(n) => Ok(n.first().copied()),
+            None => Err(XPathError::type_error(format!("{f:?} needs a node-set"))),
+        },
     }
 }
 
@@ -879,15 +943,15 @@ fn core_function(f: CoreFn, args: Vec<Value>, env: &Env, focus: &Focus) -> R<Val
         }
         Count => {
             arity(f, n, 1, 1)?;
-            match &args[0] {
-                Value::NodeSet(nodes) => Value::Number(nodes.len() as f64),
-                _ => return Err(XPathError::type_error("count() needs a node-set")),
+            match args[0].nodes_or_tree() {
+                Some(nodes) => Value::Number(nodes.len() as f64),
+                None => return Err(XPathError::type_error("count() needs a node-set")),
             }
         }
         Id => {
             arity(f, n, 1, 1)?;
-            let tokens: Vec<std::string::String> = match &args[0] {
-                Value::NodeSet(nodes) => nodes
+            let tokens: Vec<std::string::String> = match args[0].nodes_or_tree() {
+                Some(nodes) => nodes
                     .iter()
                     .flat_map(|&n| {
                         env.string_value(n)
@@ -896,7 +960,7 @@ fn core_function(f: CoreFn, args: Vec<Value>, env: &Env, focus: &Focus) -> R<Val
                             .collect::<Vec<_>>()
                     })
                     .collect(),
-                v => to_string(v, env)
+                None => to_string(&args[0], env)
                     .split_ascii_whitespace()
                     .map(str::to_owned)
                     .collect(),
@@ -1010,14 +1074,14 @@ fn core_function(f: CoreFn, args: Vec<Value>, env: &Env, focus: &Focus) -> R<Val
         }
         Sum => {
             arity(f, n, 1, 1)?;
-            match &args[0] {
-                Value::NodeSet(nodes) => Value::Number(
+            match args[0].nodes_or_tree() {
+                Some(nodes) => Value::Number(
                     nodes
                         .iter()
                         .map(|&n| number::from_string(&env.string_value(n)))
                         .sum(),
                 ),
-                _ => return Err(XPathError::type_error("sum() needs a node-set")),
+                None => return Err(XPathError::type_error("sum() needs a node-set")),
             }
         }
         Floor => {

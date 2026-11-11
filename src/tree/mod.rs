@@ -284,6 +284,9 @@ pub struct Document {
     pub url: Option<String>,
     /// A result tree fragment: a variable's or parameter's content.
     pub fragment: bool,
+    /// Parsed with `--html` (libxml2's XML_HTML_DOCUMENT_NODE), which XPath
+    /// equality treats differently (`xpath::eval::node_hash`).
+    pub html: bool,
 }
 
 impl Document {
@@ -530,6 +533,7 @@ impl Builder {
                 has_doctype: false,
                 url: None,
                 fragment: false,
+                html: false,
             },
             open: vec![NodeId(0)],
             text_break: false,
