@@ -156,6 +156,16 @@ impl ResultTree {
         Ok(())
     }
 
+    /// xsltCopyTextString with an empty string: a new empty text node,
+    /// unless it would merge with a text node before it.
+    pub fn empty_text(&mut self, names: &mut NamePool) -> Result<(), OutputError> {
+        self.flush(names)?;
+        if self.builder.current_text_len() == 0 && !self.builder.last_child_is_text() {
+            self.builder.text_node("", 0)?;
+        }
+        Ok(())
+    }
+
     pub fn comment(&mut self, s: &str, names: &mut NamePool) -> Result<(), OutputError> {
         self.flush(names)?;
         self.builder.comment(s, 0)?;

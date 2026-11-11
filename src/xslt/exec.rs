@@ -165,9 +165,13 @@ impl Budget {
 
 #[derive(Debug)]
 pub enum ExecError {
-    /// An error that stops the transform (xsltproc exit 9).
+    /// An error libxslt reports with xsltTransformError, leaving the
+    /// transform in its error state (xsltproc exit 9). libxslt goes on after
+    /// some of these; oxslt stops unless it reports them (`report`).
     Runtime(String),
-    /// `xsl:message terminate="yes"`, or recursion past the limit (exit 10).
+    /// What sets libxslt's XSLT_STATE_STOPPED (exit 10): a failed XPath
+    /// evaluation in an instruction, a global variable that fails,
+    /// `xsl:message terminate="yes"`, recursion past the limit.
     Terminated(String),
 }
 
@@ -471,7 +475,7 @@ impl<'a> Transform<'a> {
         };
         let g = &self.ss.globals[index];
         if self.computing.contains(&name) {
-            return Err(ExecError::Runtime(format!(
+            return Err(ExecError::Terminated(format!(
                 "{}\nRecursive definition of {}",
                 where_(&g.location),
                 self.names.str(name.1)
@@ -552,6 +556,27 @@ impl<'a> Transform<'a> {
         Ok(document)
     }
 
+    /// An evaluation whose XPath error the caller handles. Running out of
+    /// budget, or a global variable failing, still stops the transform.
+    fn eval_unmapped(
+        &mut self,
+        e: &Expr,
+        focus: &Focus,
+        loc: &Location,
+    ) -> R<Result<Value, XPathError>> {
+        match self.env_eval(focus, &loc.base, &loc.namespaces, |env| {
+            xpath::evaluate(e, env, focus)
+        }) {
+            Ok(v) => Ok(Ok(v)),
+            Err(err) => {
+                if self.budget.exceeded.borrow().is_some() || self.global_error.borrow().is_some() {
+                    return Err(self.exec_error(err, || where_(loc)));
+                }
+                Ok(Err(err))
+            }
+        }
+    }
+
     fn eval(&mut self, e: &Expr, focus: &Focus, loc: &Location) -> R<Value> {
         self.env_eval(focus, &loc.base, &loc.namespaces, |env| {
             xpath::evaluate(e, env, focus)
@@ -567,7 +592,10 @@ impl<'a> Transform<'a> {
         }
         match self.global_error.borrow_mut().take() {
             Some(e) => e,
-            None => ExecError::Runtime(format!("{}\n{err}", place())),
+            // libxslt's instructions stop the transform when an evaluation
+            // fails (an undefined variable also reports an error first, but
+            // stopping decides the exit code).
+            None => ExecError::Terminated(format!("{}\n{err}", place())),
         }
     }
 
@@ -585,13 +613,12 @@ impl<'a> Transform<'a> {
             .unwrap_or_default())
     }
 
-    fn eval_nodes(&mut self, e: &Expr, focus: &Focus, loc: &Location) -> R<Vec<NodeRef>> {
+    /// A node-set, or None (and the evaluation's value dropped) if the
+    /// expression gives something else.
+    fn eval_nodes(&mut self, e: &Expr, focus: &Focus, loc: &Location) -> R<Option<Vec<NodeRef>>> {
         match self.eval(e, focus, loc)? {
-            Value::NodeSet(n) => Ok(n),
-            _ => Err(ExecError::Runtime(format!(
-                "{}\nThe expression doesn't give a node-set",
-                where_(loc)
-            ))),
+            Value::NodeSet(n) => Ok(Some(n)),
+            _ => Ok(None),
         }
     }
 
@@ -1110,10 +1137,11 @@ impl<'a> Transform<'a> {
 
     fn apply_imports(&mut self, focus: &Focus, location: &Location) -> R<()> {
         let Some(current) = self.current_rule else {
-            return Err(ExecError::Runtime(format!(
-                "{}\nIt is an error to call 'apply-imports' when there's no current template rule.",
-                where_(location)
-            )));
+            self.report(
+                location,
+                "It is an error to call 'apply-imports' when there's no current template rule.",
+            );
+            return Ok(());
         };
         let below = self.ss.templates[current].precedence;
         let mode = self.mode;
@@ -1195,7 +1223,8 @@ impl<'a> Transform<'a> {
         outer: &Focus,
         loc: &Location,
     ) -> R<Vec<NodeRef>> {
-        if sorts.is_empty() {
+        // libxslt doesn't sort, or evaluate the keys of, fewer than 2 nodes.
+        if sorts.is_empty() || nodes.len() <= 1 {
             return Ok(nodes);
         }
         enum Key {
@@ -1336,7 +1365,13 @@ impl<'a> Transform<'a> {
                 location,
             } => {
                 let nodes = match select {
-                    Some(e) => self.eval_nodes(e, focus, location)?,
+                    // xsltApplyTemplates stops the transform on anything else.
+                    Some(e) => self.eval_nodes(e, focus, location)?.ok_or_else(|| {
+                        ExecError::Terminated(format!(
+                            "{}\nThe 'select' expression did not evaluate to a node set.",
+                            where_(location)
+                        ))
+                    })?,
                     None => {
                         if focus.node.ns > 0 {
                             Vec::new()
@@ -1358,11 +1393,13 @@ impl<'a> Transform<'a> {
                 location,
             } => {
                 let Some(&index) = self.ss.named.get(name) else {
-                    return Err(ExecError::Runtime(format!(
-                        "{}\nThe called template '{}' was not found",
-                        where_(location),
+                    // xsltCallTemplate reports it and goes on.
+                    let message = format!(
+                        "The called template '{}' was not found",
                         self.names.str(name.1)
-                    )));
+                    );
+                    self.report(location, &message);
+                    return Ok(());
                 };
                 let params = self.with_params(params, focus)?;
                 self.call(index, focus, &params)
@@ -1373,7 +1410,14 @@ impl<'a> Transform<'a> {
                 body,
                 location,
             } => {
-                let nodes = self.eval_nodes(select, focus, location)?;
+                // xsltForEach reports anything else and goes on.
+                let Some(nodes) = self.eval_nodes(select, focus, location)? else {
+                    self.report(
+                        location,
+                        "xsl:for-each: select didn't evaluate to a node list",
+                    );
+                    return Ok(());
+                };
                 let nodes = self.sort(nodes, sorts, focus, location)?;
                 let size = nodes.len();
                 // There's no current template rule inside xsl:for-each.
@@ -1419,11 +1463,14 @@ impl<'a> Transform<'a> {
             Instr::Variable(v) => {
                 // A local may not redefine another local of the same template.
                 if self.locals.iter().any(|(n, _)| *n == v.name) {
-                    return Err(ExecError::Runtime(format!(
-                        "{}\nXSLT-variable: Redefinition of variable '{}'.",
-                        where_(&v.location),
+                    // xsltRegisterVariable reports it and doesn't add the
+                    // variable: the first one stays.
+                    let message = format!(
+                        "XSLT-variable: Redefinition of variable '{}'.",
                         self.names.str(v.name.1)
-                    )));
+                    );
+                    self.report(&v.location, &message);
+                    return Ok(());
                 }
                 let value = self.var_value(&v.value, focus, &v.location)?;
                 self.locals.push((v.name, value));
@@ -1461,7 +1508,16 @@ impl<'a> Transform<'a> {
                     Some(a) => Some(self.avt(a, focus, location)?),
                     None => None,
                 };
-                let q = self.computed_name(&name, ns.as_deref(), scope, true, location)?;
+                // libxslt reports an invalid name or unbound prefix and
+                // skips the instruction.
+                let q = match self.computed_name(&name, ns.as_deref(), scope, true, location) {
+                    Ok(q) => q,
+                    Err(ExecError::Runtime(m)) => {
+                        self.report_plain(&m);
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                };
                 let (out, names) = self.out();
                 out.start_element(q, names).map_err(Self::output_err)?;
                 self.attribute_sets(attribute_sets, focus)?;
@@ -1481,9 +1537,31 @@ impl<'a> Transform<'a> {
                     Some(a) => Some(self.avt(a, focus, location)?),
                     None => None,
                 };
-                let q = self.computed_name(&name, ns.as_deref(), scope, false, location)?;
-                if q.ns.is_none() && self.names.str(q.local) == "xmlns" {
-                    return Ok(()); // xmlns isn't an attribute; libxslt ignores it
+                // libxslt reports an invalid name or unbound prefix and
+                // skips the instruction.
+                let q = match self.computed_name(&name, ns.as_deref(), scope, false, location) {
+                    Ok(q) => q,
+                    Err(ExecError::Runtime(m)) => {
+                        self.report_plain(&m);
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                };
+                if q.ns
+                    .is_some_and(|u| self.names.str(u) == "http://www.w3.org/2000/xmlns/")
+                {
+                    self.report(
+                        location,
+                        "xsl:attribute: Namespace http://www.w3.org/2000/xmlns/ forbidden.",
+                    );
+                    return Ok(());
+                }
+                if q.ns.is_none() && q.prefix.is_none() && self.names.str(q.local) == "xmlns" {
+                    self.report(
+                        location,
+                        "xsl:attribute: The effective name 'xmlns' is not allowed.",
+                    );
+                    return Ok(());
                 }
                 let value = self.body_string(body, focus)?;
                 let mut q = q;
@@ -1496,20 +1574,22 @@ impl<'a> Transform<'a> {
                 if let Err(OutputError::AttributeNotAllowed) =
                     self.out.last_mut().unwrap().add_attribute(q, value)
                 {
-                    return Err(ExecError::Runtime(format!(
-                        "{}\nxsl:attribute: Cannot add attributes to an element if children have been already added to the element.",
-                        where_(location)
-                    )));
+                    self.report(
+                        location,
+                        "xsl:attribute: Cannot add attributes to an element if children have been already added to the element.",
+                    );
+                    return Ok(());
                 }
                 Ok(())
             }
             Instr::Comment(body) => {
                 let s = self.body_string(body, focus)?;
                 if s.contains("--") || s.ends_with('-') {
-                    return Err(ExecError::Runtime(
-                        "runtime error: xsl:comment : '--' or ending '-' not allowed in comment"
-                            .into(),
-                    ));
+                    // xsltComment reports it and adds the comment anyway (the
+                    // result is discarded, as after any error).
+                    self.report_plain(
+                        "runtime error: xsl:comment : '--' or ending '-' not allowed in comment",
+                    );
                 }
                 let (out, names) = self.out();
                 out.comment(&s, names).map_err(Self::output_err)
@@ -1522,10 +1602,11 @@ impl<'a> Transform<'a> {
                 let target = self.avt(name, focus, location)?;
                 let data = self.body_string(body, focus)?;
                 if data.contains("?>") {
-                    return Err(ExecError::Runtime(format!(
-                        "{}\nxsl:processing-instruction: '?>' not allowed within PI content",
-                        where_(location)
-                    )));
+                    self.report(
+                        location,
+                        "xsl:processing-instruction: '?>' not allowed within PI content",
+                    );
+                    return Ok(());
                 }
                 let (out, names) = self.out();
                 let target = names.intern(target.trim());
@@ -1552,9 +1633,18 @@ impl<'a> Transform<'a> {
                 let format = number::Format::parse(&self.avt(format, focus, location)?);
                 let numbers = match value {
                     // The compiler wraps `value` in number(), as libxslt does.
-                    Some(v) => match self.eval(v, focus, location)? {
-                        Value::Number(n) => Some(vec![n]),
-                        _ => None,
+                    // libxslt evaluates "number(value)" by itself: a failure
+                    // only means no number. An undefined variable is reported
+                    // (by the variable lookup) but doesn't stop anything.
+                    Some(v) => match self.eval_unmapped(v, focus, location)? {
+                        Ok(Value::Number(n)) => Some(vec![n]),
+                        Ok(_) => None,
+                        Err(e) => {
+                            if e.message.starts_with("Undefined variable") {
+                                self.report(location, &format!("XPath error : {}", e.message));
+                            }
+                            None
+                        }
                     },
                     None => self.count_numbers(
                         *level,
@@ -1564,15 +1654,25 @@ impl<'a> Transform<'a> {
                         location,
                     )?,
                 };
-                let Some(numbers) = numbers else {
-                    return Ok(());
+                // libxslt inserts the formatted number with
+                // xsltCopyTextString even when it's empty, leaving an empty
+                // text node (so `<out></out>`, not `<out/>`).
+                let text = match numbers {
+                    Some(numbers) => {
+                        let (text, warning) = number::insert_numbers(&numbers, &format, *grouping);
+                        if let Some(w) = warning {
+                            self.warnings.borrow_mut().push(w);
+                        }
+                        text
+                    }
+                    None => String::new(),
                 };
-                let (text, warning) = number::insert_numbers(&numbers, &format, *grouping);
-                if let Some(w) = warning {
-                    self.warnings.borrow_mut().push(w);
-                }
                 let (out, names) = self.out();
-                out.text(&text, false, names).map_err(Self::output_err)
+                if text.is_empty() {
+                    out.empty_text(names).map_err(Self::output_err)
+                } else {
+                    out.text(&text, false, names).map_err(Self::output_err)
+                }
             }
             Instr::Document {
                 href,
@@ -1822,9 +1922,9 @@ impl<'a> Transform<'a> {
                     out.add_attribute(name, value)
                 };
                 if added.is_err() {
-                    return Err(ExecError::Runtime(
-                        "runtime error: Attribute nodes must be added before any child nodes to an element.".into(),
-                    ));
+                    self.report_plain(
+                        "runtime error: Attribute nodes must be added before any child nodes to an element.",
+                    );
                 }
                 Ok(())
             }

@@ -718,6 +718,14 @@ impl Builder {
         }
     }
 
+    /// Whether the current element's last child is a text node.
+    pub fn last_child_is_text(&self) -> bool {
+        let parent = self.current();
+        self.doc.nodes[parent.index()]
+            .last_child
+            .is_some_and(|l| matches!(self.doc.nodes[l.index()].kind, NodeKind::Text(_)))
+    }
+
     /// A text node even when `s` is empty, which only extension functions
     /// make (libexslt's text nodes in result tree fragments).
     pub fn text_node(&mut self, s: &str, line: u32) -> Result<NodeId, TooLarge> {

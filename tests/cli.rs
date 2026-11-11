@@ -96,3 +96,27 @@ fn missing_stylesheet_and_no_arguments() {
     assert_eq!(oxslt(&["missing.xsl", "in.xml"]).0, 4);
     assert_eq!(oxslt(&[]).0, 1);
 }
+
+/// After an error libxslt only reports (its error state), the transform
+/// goes on: a later xsl:message still prints, then exit 9 and no output.
+/// After a failed XPath evaluation it stops (exit 10): nothing more runs.
+#[test]
+fn errors_that_go_on_and_errors_that_stop() {
+    let run = |case: &str| {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/cases")
+            .join(case);
+        Command::new(env!("CARGO_BIN_EXE_oxslt"))
+            .current_dir(dir)
+            .args(["style.xsl", "in.xml"])
+            .output()
+            .expect("oxslt runs")
+    };
+    let goes_on = run("52-exit-error-goes-on");
+    assert_eq!(goes_on.status.code(), Some(9));
+    assert!(goes_on.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&goes_on.stderr).contains("still running"));
+    let stops = run("50-exit-xpath-stops");
+    assert_eq!(stops.status.code(), Some(10));
+    assert!(stops.stdout.is_empty());
+}

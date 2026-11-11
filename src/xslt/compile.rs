@@ -1679,6 +1679,13 @@ impl Compiler<'_> {
                             "xsl:{local}: The value '{literal}' of the attribute 'name' is not a valid QName."
                         )));
                     }
+                    if local == "attribute" && literal == "xmlns" {
+                        return Err(self.error(
+                            d,
+                            el,
+                            "xsl:attribute: The attribute name 'xmlns' is not allowed.",
+                        ));
+                    }
                     if let Some(p) = prefix
                         && namespace.is_none()
                         && p != "xml"
@@ -2020,7 +2027,7 @@ impl Compiler<'_> {
     // ---------- globals ----------
 
     /// Orders global variables so each comes after the globals it uses.
-    /// A circular reference is an error. Later declarations of the same name win.
+    /// Later declarations of the same name win.
     fn order_globals(&mut self) {
         let globals = std::mem::take(&mut self.ss.globals);
         let mut by_name: HashMap<Name, Variable> = HashMap::new();
@@ -2048,17 +2055,10 @@ impl Compiler<'_> {
     ) {
         match state.get(&name) {
             Some(2) => return,
-            Some(1) => {
-                let v = &by_name[&name];
-                self.errors.push(CompileError {
-                    message: format!(
-                        "Circular reference to global variable {}",
-                        self.names.str(name.1)
-                    ),
-                    location: v.location.clone(),
-                });
-                return;
-            }
+            // A circular reference isn't a compile error in libxslt: computing
+            // the globals stops the transform (exit 10), which
+            // `exec::compute_global` does.
+            Some(1) => return,
             _ => {}
         }
         let Some(var) = by_name.get(&name) else {
