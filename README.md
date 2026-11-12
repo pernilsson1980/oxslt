@@ -34,6 +34,8 @@ cargo build --release
 target/release/oxslt [options] stylesheet.xsl input.xml [input.xml ...]
 ```
 
+As with `xsltproc`, `-` in place of a file name reads it from standard input.
+
 The options are `xsltproc`'s:
 
 | Option | |
@@ -67,7 +69,7 @@ oxslt treats stylesheets and documents as untrusted input.
 - **Files oxslt writes:** the one given with `-o`, and, as `xsltproc` does, whatever a stylesheet's `exsl:document` names, anywhere the user may write. `--nowrite`, `--nomkdir` and `--writesubtree` restrict that, as in `xsltproc`; use them for untrusted stylesheets.
 - **It reads local files as `xsltproc` does:** files named by `document()`, `xsl:include` and `xsl:import`, external DTDs, and external entities in the input. So a stylesheet or document can read any file the user can read. Don't run untrusted stylesheets on machines with confidential files, and don't hand their output to people you don't trust.
 - **Resource limits:** libxml2's parser limits (nesting depth, text and name sizes), protection against entity-expansion attacks, a template recursion limit of 3,000, and resistance to hash flooding. The library also offers a work budget and a timeout (`xslt::exec::Limits`); the command line doesn't set them, since `xsltproc` has none.
-- The parser, XPath and whole transforms are fuzzed with cargo-fuzz.
+- The XML and HTML parsers, XPath and whole transforms are fuzzed with cargo-fuzz.
 
 ## Testing
 
@@ -83,6 +85,8 @@ scripts/fetch-real-stylesheets.sh    # real build stylesheets (GPL/LGPL; never c
 scripts/fetch-docbook.sh             # DocBook documents
 scripts/fetch-docbook-xsl.sh         # DocBook XSL stylesheets, DTDs and catalogs
 scripts/record-docbook-html.sh       # xsltproc's DocBook HTML output
+scripts/html-diff.sh fuzz 5000 1     # --html trees against xsltproc's, on generated broken HTML (also: corpus)
+scripts/dropin.sh                    # build Debian packages with oxslt beside xsltproc
 ```
 
 `xsltproc` runs only inside an offline, read-only Debian container (`tests/reference/Dockerfile`), because some of its extensions write files and fetch from the network.
@@ -90,7 +94,7 @@ scripts/record-docbook-html.sh       # xsltproc's DocBook HTML output
 Fuzzing needs a nightly toolchain:
 
 ```sh
-cargo +nightly fuzz run transform -- -max_total_time=300   # also: parse, xpath
+cargo +nightly fuzz run transform -- -max_total_time=300   # also: parse, xpath, html
 ```
 
 ## Licence
