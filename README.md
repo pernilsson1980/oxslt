@@ -9,7 +9,7 @@ oxslt is a memory-safe replacement for the `xsltproc` command, written in Rust, 
 Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, libxslt 1.1.35, libexslt 0.8.20): oxslt is expected to give byte-identical output and the same exit code.
 
 - **XSLT 1.0 and XPath 1.0**, including imports and import precedence, keys, `xsl:number`, `document()`, `format-number()` and the xml, html and text output methods.
-- **EXSLT:** common (`exsl:node-set`, `exsl:object-type`, `exsl:document`), sets, strings, math, most of dates and times, and `dyn:evaluate`.
+- **EXSLT:** common (`exsl:node-set`, `exsl:object-type`, `exsl:document`), sets, strings, math, dates and times (durations included), and `dyn:evaluate`.
 - **XInclude** (`--xinclude`) and libxml2's XHTML serializer.
 - **HTML input** (`--html`): a port of libxml2's HTML parser, with its implied elements, auto-closing and encoding detection.
 - **DTDs and XML catalogs:** internal and external subsets, entities, default attributes and IDs, with catalogs from `XML_CATALOG_FILES` (or `SGML_CATALOG_FILES` with `--catalogs`).
@@ -20,7 +20,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 ### Not supported yet
 
 - Extension elements other than `exsl:document`, `xt:document` and `saxon:output`, such as `func:function`.
-- EXSLT's `date:add`, `date:difference`, `date:duration`, `date:seconds` and `date:sum`, and the crypto functions. `function-available()` reports them as available, as `xsltproc` does, but calling one is an error.
+- EXSLT's `dyn:map` and crypto functions, and saxon's `expression`, `eval` and `evaluate`. `function-available()` reports them as available, as `xsltproc` does, but calling one is an error.
 - `xsltproc` options other than those listed below.
 - EBCDIC encodings.
 - `xsl:sort`'s `lang` attribute is ignored.
