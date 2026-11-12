@@ -112,7 +112,7 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
 - `src/xslt/`: the engine.
   - `compile` turns the stylesheet tree into the IR in `ir`. That includes includes, literal-result-element stylesheets, namespace exclusion and aliasing, AVTs, and globals ordered by their dependencies.
   - `pattern` holds match patterns and default priorities.
-  - `exec` runs the IR, covering template selection (highest priority, then the later rule), built-in templates, parameters, sorting, copying, and the XSLT functions.
+  - `exec` runs the IR, covering template selection (highest priority, then the later rule), built-in templates, parameters, sorting and copying. `exec/functions.rs` is the XPath side: variable lookup and the XSLT, EXSLT and extension functions, with key indexes, `document()` and `dyn:evaluate`.
   - **Template rules are indexed** by mode and node kind and name (`NodeKey`, `could_match`): only rules whose last step could match are tried, in the same order. `could_match` may say yes too often, never too rarely; the full match decides.
   - `output` builds result trees, keeping each element pending until its first child and fixing up namespace declarations.
   - Each result tree fragment is a `Document` of its own.
