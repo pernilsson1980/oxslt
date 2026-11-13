@@ -1,8 +1,8 @@
 # oxslt
 
-oxslt is a memory-safe replacement for the `xsltproc` command, written in Rust, for XSLT 1.0. The goal is a drop-in binary: a build system or distribution should be able to swap it in for `xsltproc` and get the same output bytes and the same exit codes, without changing anything else.
+oxslt (pronounced "ox-ess-ell-tee") is a memory-safe replacement for the `xsltproc` command, written in Rust, for XSLT 1.0. The goal is a drop-in binary: a build system or distribution should be able to swap it in for `xsltproc` and get the same output bytes and the same exit codes, without changing anything else.
 
-**Status: proof of concept.** It isn't ready for production use yet. In drop-in testing, the builds of 100 Debian packages ran oxslt beside `xsltproc` (`tests/dropin`, `scripts/dropin.sh`). All 2,493 `xsltproc` calls gave identical output, written files included. (Two of the builds fail for reasons that have nothing to do with XSLT.)
+**Status: early.** oxslt is tested extensively against `xsltproc` but hasn't been used in production yet; please report any difference you find. In drop-in testing, the builds of 100 Debian packages ran oxslt beside `xsltproc` (`tests/dropin`, `scripts/dropin.sh`). All 2,493 `xsltproc` calls gave identical output, written files included. (Two of the builds fail for reasons that have nothing to do with XSLT.)
 
 ## What works
 
@@ -58,6 +58,16 @@ The options are `xsltproc`'s:
 
 Exit codes match those documented in the `xsltproc` man page.
 
+### Using it as `xsltproc`
+
+oxslt behaves as `xsltproc`, so a build can use it under that name, for example with a symlink earlier in `PATH`:
+
+```sh
+ln -s "$(command -v oxslt)" ~/bin/xsltproc
+```
+
+On Debian-based systems, `update-alternatives` can do the same system-wide. Like `xsltproc`, it writes the files a stylesheet's `exsl:document` names; see Security below.
+
 ## Performance
 
 On native arm64 Linux, oxslt is faster than `xsltproc` on 13 of 14 benchmark workloads and uses about half the memory on all of them; DocBook HTML pages run about 1.3 times as fast. The one slower workload is grouping without keys (`preceding-sibling` comparisons), at about 0.8 times `xsltproc`'s speed. Details and methods are in [tests/bench/RESULTS.md](tests/bench/RESULTS.md); `scripts/bench.sh` reruns the benchmarks.
@@ -72,6 +82,8 @@ oxslt treats stylesheets and documents as untrusted input.
 - **It reads local files as `xsltproc` does:** files named by `document()`, `xsl:include` and `xsl:import`, external DTDs, and external entities in the input. So a stylesheet or document can read any file the user can read. Don't run untrusted stylesheets on machines with confidential files, and don't hand their output to people you don't trust.
 - **Resource limits:** libxml2's parser limits (nesting depth, text and name sizes), protection against entity-expansion attacks, a template recursion limit of 3,000, and resistance to hash flooding. The library also offers a work budget and a timeout (`xslt::exec::Limits`); the command line doesn't set them, since `xsltproc` has none.
 - The XML and HTML parsers, XPath and whole transforms are fuzzed with cargo-fuzz.
+
+Please report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## Testing
 
@@ -108,4 +120,6 @@ oxslt is licensed under either of
 
 at your option.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in oxslt by you, as defined in the Apache-2.0 licence, shall be dual licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in oxslt by you, as defined in the Apache-2.0 licence, shall be dual licensed as above, without any additional terms or conditions. [CONTRIBUTING.md](CONTRIBUTING.md) says how to work on it.
+
+Much of oxslt follows the code of libxml2, libxslt and libexslt (MIT licences); their notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

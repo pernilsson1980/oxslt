@@ -45,6 +45,8 @@ Never run third-party stylesheets with `xsltproc` directly on the Mac. Run them 
 - Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`), decided 2026-11-09. `README.md` is the public description; keep its claims in step with the status here.
 - CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, clippy and `cargo test` on Linux and macOS, without fetched data. The xsltproc comparisons on fetched suites run locally.
 - Keep private links and local paths out of the repository; it's meant to be public.
+- `THIRD-PARTY-NOTICES.md` keeps the MIT notices of libxml2, libxslt and libexslt, whose code much of oxslt ports; keep it when porting from them. `SECURITY.md` asks for private vulnerability reports, `CONTRIBUTING.md` gives the comparison rules.
+- `rust-version` in `Cargo.toml` is the minimum Rust that builds (1.88: let-chains, and encoding_rs needs it); CI builds with it.
 
 ## Commands
 

@@ -40,3 +40,17 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test
+
+  msrv:
+    name: Build with the minimum Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88 --profile minimal
+          rustup default 1.88
+      - name: Build
+        run: cargo build --all-targets
