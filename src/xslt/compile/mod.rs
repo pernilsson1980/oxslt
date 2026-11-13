@@ -524,18 +524,6 @@ impl Compiler<'_> {
         d.space_memo.borrow_mut().insert(el, p);
         p
     }
-
-    // ---------- top level ----------
-
-    // ---------- bodies ----------
-
-    // ---------- import precedence ----------
-
-    // ---------- xsl:number ----------
-
-    // ---------- attribute sets ----------
-
-    // ---------- globals ----------
 }
 
 /// Calls `f` on every node of an expression, parents first.

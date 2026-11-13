@@ -110,7 +110,11 @@ Before saying a change is done, run `cargo fmt`, `cargo clippy` and `cargo test`
   - **Where libxml2 2.9 departs from the spec, oxslt follows libxml2**, with a comment at each place. Examples: number formatting (`1e+21`, `-2.147483648e+09`), namespace-axis order, the `following` axis of an attribute, `round()` and `substring()`. libxml2's path grammar is lax too: a relative location path may start with an extra `/` or `//`, so `///x` is `//x`, and a lone `/` not followed by a step is skipped (`parser::relative_path`, `tests/cases/40-xpath-extra-slashes`). libxslt's pattern compiler isn't lax, so a pattern like `///x` is a compile error (`compile::pattern_xpath`, `tests/cases/44`).
   - **Hostile input can't overflow the stack.** Nesting past `MAX_NESTING` (100) is rejected on the way in. Trees taller than `MAX_HEIGHT` (250) are rejected while being built, sized so evaluation fits on a 2 MB debug-build thread.
 - `src/xslt/`: the engine.
-  - `compile` turns the stylesheet tree into the IR in `ir`. That includes includes, literal-result-element stylesheets, namespace exclusion and aliasing, AVTs, and globals ordered by their dependencies.
+  - `compile` turns the stylesheet tree into the IR in `ir`. That includes includes, literal-result-element stylesheets, namespace exclusion and aliasing, AVTs, and globals ordered by their dependencies. `compile/mod.rs` has the `Compiler` and its shared helpers (scopes, QNames, XPath, AVTs); its submodules extend it:
+    - `modules.rs`: a module's top level, `xsl:include`/`xsl:import`, exclusions and aliases.
+    - `declarations.rs`: top-level elements (templates, variables, keys, attribute sets, `xsl:output`, decimal formats, space rules).
+    - `body.rs`: template bodies (instructions, literal result elements, `xsl:number`, extension elements).
+    - `link.rs`: the passes after loading (import precedence, attribute-set merging, ordering globals).
   - `pattern` holds match patterns and default priorities.
   - `exec` runs the IR: `exec/mod.rs` has the `Transform` (globals, document loading, evaluation, instructions, parameters, sorting). Its submodules extend it (child modules see its private items through `use super::*`):
     - `functions.rs`: the XPath side, variable lookup and the XSLT, EXSLT and extension functions, with key indexes, `document()` and `dyn:evaluate`.

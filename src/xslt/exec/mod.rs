@@ -576,8 +576,6 @@ impl<'a> Transform<'a> {
 
     // ---------- templates ----------
 
-    // ---------- xsl:number ----------
-
     fn apply_imports(&mut self, focus: &Focus, location: &Location) -> R<()> {
         let Some(current) = self.current_rule else {
             self.report(
