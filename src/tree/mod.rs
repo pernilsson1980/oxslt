@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 /// multiplicative hash spreads consecutive numbers without collisions.
 /// Strings are attacker-controlled; maps keyed by them keep std's keyed
 /// SipHash, so a document can't make them collide (hash flooding).
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct SymHasher(u64);
 
 impl SymHasher {
@@ -478,6 +478,7 @@ impl Document {
     }
 }
 
+#[derive(Debug)]
 pub struct Children<'a> {
     doc: &'a Document,
     next: Option<NodeId>,
@@ -496,7 +497,16 @@ impl Iterator for Children<'_> {
 #[derive(Debug)]
 pub struct TooLarge;
 
+impl std::fmt::Display for TooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("document too large: too many nodes or too much text")
+    }
+}
+
+impl std::error::Error for TooLarge {}
+
 /// Builds a [`Document`] in document order. Used by the parser.
+#[derive(Debug)]
 pub struct Builder {
     doc: Document,
     open: Vec<NodeId>,

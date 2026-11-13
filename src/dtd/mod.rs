@@ -25,6 +25,7 @@ pub trait Loader {
 }
 
 /// A loader that never finds anything.
+#[derive(Debug)]
 pub struct NoLoader;
 
 impl Loader for NoLoader {
@@ -111,6 +112,14 @@ pub struct Dtd {
 
 #[derive(Debug)]
 pub struct DtdError(pub String);
+
+impl std::fmt::Display for DtdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DtdError {}
 
 fn is_ws(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r')

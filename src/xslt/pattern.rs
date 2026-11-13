@@ -44,6 +44,14 @@ pub struct PatternStep {
 #[derive(Debug)]
 pub struct PatternError(pub String);
 
+impl std::fmt::Display for PatternError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for PatternError {}
+
 /// Converts a compiled XPath expression into a pattern, rejecting anything
 /// patterns don't allow.
 /// `allow_variables`: xsl:number's count and from patterns may use

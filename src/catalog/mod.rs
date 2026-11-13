@@ -66,7 +66,7 @@ enum Entry {
 }
 
 /// A set of catalog files, read when first needed.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Catalog {
     roots: Vec<String>,
     loaded: RefCell<HashMap<String, Vec<Entry>>>,
@@ -490,6 +490,7 @@ fn walk(
 }
 
 /// Loads external resources as xsltproc's entity loader does.
+#[derive(Debug)]
 pub struct ResourceLoader {
     pub catalog: Catalog,
     /// `--path`: directories to try with a failed URL's last segment.

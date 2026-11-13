@@ -137,6 +137,7 @@ pub(crate) fn is_boolean(name: &str) -> bool {
 }
 
 /// The DOCTYPE of an HTML result: name, public ID, system ID.
+#[derive(Debug)]
 pub struct Doctype {
     pub name: String,
     pub public: Option<String>,

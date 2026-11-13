@@ -43,6 +43,8 @@ impl std::fmt::Display for CompileError {
     }
 }
 
+impl std::error::Error for CompileError {}
+
 /// Why compiling failed. `Parse` is a stylesheet that isn't well-formed XML
 /// (xsltproc exit 4); `Compile` is an XSLT error in a well-formed one (exit 5).
 #[derive(Debug)]
@@ -50,6 +52,25 @@ pub enum StylesheetError {
     Parse(String),
     Compile(Vec<CompileError>),
 }
+
+impl std::fmt::Display for StylesheetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StylesheetError::Parse(m) => f.write_str(m),
+            StylesheetError::Compile(errors) => {
+                for (i, e) in errors.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(f)?;
+                    }
+                    write!(f, "{e}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::error::Error for StylesheetError {}
 
 /// Compiles the stylesheet in `doc`, read from `file`. Included files are read
 /// relative to it, with no catalogs.

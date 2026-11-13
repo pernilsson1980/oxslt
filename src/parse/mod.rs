@@ -80,6 +80,7 @@ impl std::error::Error for ParseError {}
 
 /// A parsed document and the warnings parsing raised, such as an external
 /// DTD that couldn't be loaded.
+#[derive(Debug)]
 pub struct Parsed {
     pub document: Document,
     pub warnings: Vec<String>,

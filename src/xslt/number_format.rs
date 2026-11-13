@@ -38,6 +38,7 @@ impl Default for DecimalFormat {
 }
 
 /// The result, and the warning libxslt prints for an invalid pattern.
+#[derive(Debug)]
 pub struct Formatted {
     pub text: String,
     pub warning: Option<String>,

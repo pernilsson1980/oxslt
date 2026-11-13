@@ -20,12 +20,27 @@ pub enum OutputError {
     TooLarge,
 }
 
+impl std::fmt::Display for OutputError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            OutputError::AttributeNotAllowed => {
+                "an attribute can't be added to an element after its children"
+            }
+            OutputError::NoElement => "there's no element to add the attribute to",
+            OutputError::TooLarge => "the result tree is too large",
+        })
+    }
+}
+
+impl std::error::Error for OutputError {}
+
 impl From<TooLarge> for OutputError {
     fn from(_: TooLarge) -> Self {
         OutputError::TooLarge
     }
 }
 
+#[derive(Debug)]
 struct Pending {
     name: QName,
     namespaces: Vec<Binding>,
@@ -41,6 +56,7 @@ struct Pending {
     attribute_decls: Vec<Binding>,
 }
 
+#[derive(Debug)]
 pub struct ResultTree {
     builder: Builder,
     pending: Option<Pending>,

@@ -29,6 +29,8 @@ The smaller known differences from `xsltproc` are listed in [CLAUDE.md](CLAUDE.m
 
 ## Usage
 
+Building needs Rust 1.88 or later.
+
 ```sh
 cargo build --release
 target/release/oxslt [options] stylesheet.xsl input.xml [input.xml ...]

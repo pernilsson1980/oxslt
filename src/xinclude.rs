@@ -38,6 +38,7 @@ pub const NS: &str = "http://www.w3.org/2001/XInclude";
 pub const OLD_NS: &str = "http://www.w3.org/2003/XInclude";
 
 /// The result of processing a document's XIncludes.
+#[derive(Debug)]
 pub struct Processed {
     pub document: Document,
     /// XInclude errors. Any error makes `xmlXIncludeProcessFlags` fail, and

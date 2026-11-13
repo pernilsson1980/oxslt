@@ -54,7 +54,18 @@ pub enum ExecError {
     Terminated(String),
 }
 
+impl std::fmt::Display for ExecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExecError::Runtime(m) | ExecError::Terminated(m) => f.write_str(m),
+        }
+    }
+}
+
+impl std::error::Error for ExecError {}
+
 /// A global parameter given on the command line.
+#[derive(Debug)]
 pub enum Param {
     /// `--stringparam`: a string.
     String(String),
@@ -119,6 +130,18 @@ pub struct Transform<'a> {
     /// The mode of the innermost xsl:apply-templates.
     mode: Option<Name>,
     messages: &'a mut dyn Write,
+}
+
+impl std::fmt::Debug for Transform<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Most of its state is evaluation bookkeeping, and the message
+        // writer is a trait object.
+        f.debug_struct("Transform")
+            .field("docs", &self.docs.len())
+            .field("depth", &self.depth)
+            .field("failed", &self.failed)
+            .finish_non_exhaustive()
+    }
 }
 
 type R<T> = Result<T, ExecError>;

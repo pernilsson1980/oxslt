@@ -40,6 +40,7 @@ pub trait Functions {
 }
 
 /// No variables and no extra functions.
+#[derive(Debug)]
 pub struct Empty;
 
 impl Variables for Empty {
@@ -66,6 +67,15 @@ pub struct Env<'a> {
     pub names: &'a NamePool,
     pub vars: &'a dyn Variables,
     pub funcs: &'a dyn Functions,
+}
+
+impl std::fmt::Debug for Env<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The variables and functions are trait objects.
+        f.debug_struct("Env")
+            .field("docs", &self.docs.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The context node, position and size.

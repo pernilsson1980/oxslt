@@ -115,6 +115,7 @@ pub fn is_available(ns: &str, local: &str) -> bool {
 /// What an extension function gives: a value, or new nodes. New nodes
 /// are the children of a small document (libxslt's result value tree)
 /// that the caller adds to the transform's documents.
+#[derive(Debug)]
 pub enum Outcome {
     Value(Value),
     Fragment(Box<Document>),

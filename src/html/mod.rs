@@ -40,6 +40,7 @@ const BIG_BUFFER_SIZE: usize = 1000;
 const MAX_DEPTH: usize = 256;
 /// XML_MAX_TEXT_LENGTH: text past this is dropped from a node.
 const MAX_TEXT: usize = 10_000_000;
+#[derive(Debug)]
 pub struct Parsed {
     pub document: Document,
     pub warnings: Vec<String>,
