@@ -759,36 +759,7 @@ impl<'a> Transform<'a> {
                 let (out, names) = self.out();
                 out.text(s, true, names).map_err(Self::output_err)
             }
-            Instr::LiteralElement {
-                name,
-                namespaces,
-                inherited,
-                attributes,
-                attribute_sets,
-                body,
-                location,
-            } => {
-                let (out, names) = self.out();
-                out.start_element(*name, names).map_err(Self::output_err)?;
-                for &b in namespaces {
-                    out.add_namespace(b);
-                }
-                for &b in inherited {
-                    out.add_late_namespace(b);
-                }
-                self.attribute_sets(attribute_sets, focus)?;
-                for (q, avt) in attributes {
-                    let value = self.avt(avt, focus, location)?;
-                    self.out
-                        .last_mut()
-                        .unwrap()
-                        .add_attribute(*q, value)
-                        .map_err(Self::output_err)?;
-                }
-                self.body(body, focus)?;
-                let (out, names) = self.out();
-                out.end_element(names).map_err(Self::output_err)
-            }
+            Instr::LiteralElement { .. } => self.literal_element(instr, focus),
             Instr::ValueOf {
                 select,
                 unescaped,
@@ -798,88 +769,9 @@ impl<'a> Transform<'a> {
                 let (out, names) = self.out();
                 out.text(&s, *unescaped, names).map_err(Self::output_err)
             }
-            Instr::ApplyTemplates {
-                select,
-                mode,
-                sorts,
-                params,
-                location,
-            } => {
-                let nodes = match select {
-                    // xsltApplyTemplates stops the transform on anything else.
-                    Some(e) => self.eval_nodes(e, focus, location)?.ok_or_else(|| {
-                        ExecError::Terminated(format!(
-                            "{}\nThe 'select' expression did not evaluate to a node set.",
-                            where_(location)
-                        ))
-                    })?,
-                    None => {
-                        if focus.node.ns > 0 {
-                            Vec::new()
-                        } else {
-                            let doc = &self.docs[focus.node.doc as usize];
-                            doc.children(focus.node.node)
-                                .map(|c| NodeRef::new(focus.node.doc, c))
-                                .collect()
-                        }
-                    }
-                };
-                let nodes = self.sort(nodes, sorts, focus, location)?;
-                let params = self.with_params(params, focus)?;
-                self.apply(&nodes, *mode, &params, focus)
-            }
-            Instr::CallTemplate {
-                name,
-                params,
-                location,
-            } => {
-                let Some(&index) = self.ss.named.get(name) else {
-                    // xsltCallTemplate reports it and goes on.
-                    let message = format!(
-                        "The called template '{}' was not found",
-                        self.names.str(name.1)
-                    );
-                    self.report(location, &message);
-                    return Ok(());
-                };
-                let params = self.with_params(params, focus)?;
-                self.call(index, focus, &params)
-            }
-            Instr::ForEach {
-                select,
-                sorts,
-                body,
-                location,
-            } => {
-                // xsltForEach reports anything else and goes on.
-                let Some(nodes) = self.eval_nodes(select, focus, location)? else {
-                    self.report(
-                        location,
-                        "xsl:for-each: select didn't evaluate to a node list",
-                    );
-                    return Ok(());
-                };
-                let nodes = self.sort(nodes, sorts, focus, location)?;
-                let size = nodes.len();
-                // There's no current template rule inside xsl:for-each.
-                let saved = self.current_rule.take();
-                let mut result = Ok(());
-                for (i, &node) in nodes.iter().enumerate() {
-                    result = self.body(
-                        body,
-                        &Focus {
-                            node,
-                            position: i + 1,
-                            size,
-                        },
-                    );
-                    if result.is_err() {
-                        break;
-                    }
-                }
-                self.current_rule = saved;
-                result
-            }
+            Instr::ApplyTemplates { .. } => self.apply_templates(instr, focus),
+            Instr::CallTemplate { .. } => self.call_template(instr, focus),
+            Instr::ForEach { .. } => self.for_each(instr, focus),
             Instr::If {
                 test,
                 body,
@@ -937,93 +829,8 @@ impl<'a> Transform<'a> {
                     out.text(&s, false, names).map_err(Self::output_err)
                 }
             },
-            Instr::Element {
-                name,
-                namespace,
-                scope,
-                attribute_sets,
-                body,
-                location,
-            } => {
-                let name = self.avt(name, focus, location)?;
-                let ns = match namespace {
-                    Some(a) => Some(self.avt(a, focus, location)?),
-                    None => None,
-                };
-                // libxslt reports an invalid name or unbound prefix and
-                // skips the instruction.
-                let q = match self.computed_name(&name, ns.as_deref(), scope, true, location) {
-                    Ok(q) => q,
-                    Err(ExecError::Runtime(m)) => {
-                        self.report_plain(&m);
-                        return Ok(());
-                    }
-                    Err(e) => return Err(e),
-                };
-                let (out, names) = self.out();
-                out.start_element(q, names).map_err(Self::output_err)?;
-                self.attribute_sets(attribute_sets, focus)?;
-                self.body(body, focus)?;
-                let (out, names) = self.out();
-                out.end_element(names).map_err(Self::output_err)
-            }
-            Instr::Attribute {
-                name,
-                namespace,
-                scope,
-                body,
-                location,
-            } => {
-                let name = self.avt(name, focus, location)?;
-                let ns = match namespace {
-                    Some(a) => Some(self.avt(a, focus, location)?),
-                    None => None,
-                };
-                // libxslt reports an invalid name or unbound prefix and
-                // skips the instruction.
-                let q = match self.computed_name(&name, ns.as_deref(), scope, false, location) {
-                    Ok(q) => q,
-                    Err(ExecError::Runtime(m)) => {
-                        self.report_plain(&m);
-                        return Ok(());
-                    }
-                    Err(e) => return Err(e),
-                };
-                if q.ns
-                    .is_some_and(|u| self.names.str(u) == "http://www.w3.org/2000/xmlns/")
-                {
-                    self.report(
-                        location,
-                        "xsl:attribute: Namespace http://www.w3.org/2000/xmlns/ forbidden.",
-                    );
-                    return Ok(());
-                }
-                if q.ns.is_none() && q.prefix.is_none() && self.names.str(q.local) == "xmlns" {
-                    self.report(
-                        location,
-                        "xsl:attribute: The effective name 'xmlns' is not allowed.",
-                    );
-                    return Ok(());
-                }
-                let value = self.body_string(body, focus)?;
-                let mut q = q;
-                if let Some(uri) = q.ns {
-                    let (out, names) = self.out();
-                    if let Some(prefix) = out.attribute_prefix(uri, q.prefix, names) {
-                        q.prefix = Some(prefix);
-                    }
-                }
-                if let Err(OutputError::AttributeNotAllowed) =
-                    self.out.last_mut().unwrap().add_attribute(q, value)
-                {
-                    self.report(
-                        location,
-                        "xsl:attribute: Cannot add attributes to an element if children have been already added to the element.",
-                    );
-                    return Ok(());
-                }
-                Ok(())
-            }
+            Instr::Element { .. } => self.element(instr, focus),
+            Instr::Attribute { .. } => self.attribute(instr, focus),
             Instr::Comment(body) => {
                 let s = self.body_string(body, focus)?;
                 if s.contains("--") || s.ends_with('-') {
@@ -1036,24 +843,7 @@ impl<'a> Transform<'a> {
                 let (out, names) = self.out();
                 out.comment(&s, names).map_err(Self::output_err)
             }
-            Instr::ProcessingInstruction {
-                name,
-                body,
-                location,
-            } => {
-                let target = self.avt(name, focus, location)?;
-                let data = self.body_string(body, focus)?;
-                if data.contains("?>") {
-                    self.report(
-                        location,
-                        "xsl:processing-instruction: '?>' not allowed within PI content",
-                    );
-                    return Ok(());
-                }
-                let (out, names) = self.out();
-                let target = names.intern(target.trim());
-                out.pi(target, &data, names).map_err(Self::output_err)
-            }
+            Instr::ProcessingInstruction { .. } => self.processing_instruction(instr, focus),
             Instr::Message { terminate, body } => {
                 let text = self.body_string(body, focus)?;
                 let _ = writeln!(self.messages, "{text}");
@@ -1063,59 +853,7 @@ impl<'a> Transform<'a> {
                 Ok(())
             }
             Instr::ApplyImports { location } => self.apply_imports(focus, location),
-            Instr::Number {
-                value,
-                level,
-                count,
-                from,
-                format,
-                grouping,
-                location,
-            } => {
-                let format = number::Format::parse(&self.avt(format, focus, location)?);
-                let numbers = match value {
-                    // The compiler wraps `value` in number(), as libxslt does.
-                    // libxslt evaluates "number(value)" by itself: a failure
-                    // only means no number. An undefined variable is reported
-                    // (by the variable lookup) but doesn't stop anything.
-                    Some(v) => match self.eval_unmapped(v, focus, location)? {
-                        Ok(Value::Number(n)) => Some(vec![n]),
-                        Ok(_) => None,
-                        Err(e) => {
-                            if e.message.starts_with("Undefined variable") {
-                                self.report(location, &format!("XPath error : {}", e.message));
-                            }
-                            None
-                        }
-                    },
-                    None => self.count_numbers(
-                        *level,
-                        count.as_ref(),
-                        from.as_ref(),
-                        focus.node,
-                        location,
-                    )?,
-                };
-                // libxslt inserts the formatted number with
-                // xsltCopyTextString even when it's empty, leaving an empty
-                // text node (so `<out></out>`, not `<out/>`).
-                let text = match numbers {
-                    Some(numbers) => {
-                        let (text, warning) = number::insert_numbers(&numbers, &format, *grouping);
-                        if let Some(w) = warning {
-                            self.warnings.borrow_mut().push(w);
-                        }
-                        text
-                    }
-                    None => String::new(),
-                };
-                let (out, names) = self.out();
-                if text.is_empty() {
-                    out.empty_text(names).map_err(Self::output_err)
-                } else {
-                    out.text(&text, false, names).map_err(Self::output_err)
-                }
-            }
+            Instr::Number { .. } => self.number(instr, focus),
             Instr::Document {
                 href,
                 settings,
@@ -1126,6 +864,312 @@ impl<'a> Transform<'a> {
                 "{}\n{what} isn't supported yet",
                 where_(location)
             ))),
+        }
+    }
+
+    fn literal_element(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::LiteralElement {
+            name,
+            namespaces,
+            inherited,
+            attributes,
+            attribute_sets,
+            body,
+            location,
+        } = instr
+        else {
+            unreachable!("literal_element: another instruction")
+        };
+        let (out, names) = self.out();
+        out.start_element(*name, names).map_err(Self::output_err)?;
+        for &b in namespaces {
+            out.add_namespace(b);
+        }
+        for &b in inherited {
+            out.add_late_namespace(b);
+        }
+        self.attribute_sets(attribute_sets, focus)?;
+        for (q, avt) in attributes {
+            let value = self.avt(avt, focus, location)?;
+            self.out
+                .last_mut()
+                .unwrap()
+                .add_attribute(*q, value)
+                .map_err(Self::output_err)?;
+        }
+        self.body(body, focus)?;
+        let (out, names) = self.out();
+        out.end_element(names).map_err(Self::output_err)
+    }
+
+    fn apply_templates(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::ApplyTemplates {
+            select,
+            mode,
+            sorts,
+            params,
+            location,
+        } = instr
+        else {
+            unreachable!("apply_templates: another instruction")
+        };
+        let nodes = match select {
+            // xsltApplyTemplates stops the transform on anything else.
+            Some(e) => self.eval_nodes(e, focus, location)?.ok_or_else(|| {
+                ExecError::Terminated(format!(
+                    "{}\nThe 'select' expression did not evaluate to a node set.",
+                    where_(location)
+                ))
+            })?,
+            None => {
+                if focus.node.ns > 0 {
+                    Vec::new()
+                } else {
+                    let doc = &self.docs[focus.node.doc as usize];
+                    doc.children(focus.node.node)
+                        .map(|c| NodeRef::new(focus.node.doc, c))
+                        .collect()
+                }
+            }
+        };
+        let nodes = self.sort(nodes, sorts, focus, location)?;
+        let params = self.with_params(params, focus)?;
+        self.apply(&nodes, *mode, &params, focus)
+    }
+
+    fn call_template(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::CallTemplate {
+            name,
+            params,
+            location,
+        } = instr
+        else {
+            unreachable!("call_template: another instruction")
+        };
+        let Some(&index) = self.ss.named.get(name) else {
+            // xsltCallTemplate reports it and goes on.
+            let message = format!(
+                "The called template '{}' was not found",
+                self.names.str(name.1)
+            );
+            self.report(location, &message);
+            return Ok(());
+        };
+        let params = self.with_params(params, focus)?;
+        self.call(index, focus, &params)
+    }
+
+    fn for_each(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::ForEach {
+            select,
+            sorts,
+            body,
+            location,
+        } = instr
+        else {
+            unreachable!("for_each: another instruction")
+        };
+        // xsltForEach reports anything else and goes on.
+        let Some(nodes) = self.eval_nodes(select, focus, location)? else {
+            self.report(
+                location,
+                "xsl:for-each: select didn't evaluate to a node list",
+            );
+            return Ok(());
+        };
+        let nodes = self.sort(nodes, sorts, focus, location)?;
+        let size = nodes.len();
+        // There's no current template rule inside xsl:for-each.
+        let saved = self.current_rule.take();
+        let mut result = Ok(());
+        for (i, &node) in nodes.iter().enumerate() {
+            result = self.body(
+                body,
+                &Focus {
+                    node,
+                    position: i + 1,
+                    size,
+                },
+            );
+            if result.is_err() {
+                break;
+            }
+        }
+        self.current_rule = saved;
+        result
+    }
+
+    fn element(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::Element {
+            name,
+            namespace,
+            scope,
+            attribute_sets,
+            body,
+            location,
+        } = instr
+        else {
+            unreachable!("element: another instruction")
+        };
+        let name = self.avt(name, focus, location)?;
+        let ns = match namespace {
+            Some(a) => Some(self.avt(a, focus, location)?),
+            None => None,
+        };
+        // libxslt reports an invalid name or unbound prefix and
+        // skips the instruction.
+        let q = match self.computed_name(&name, ns.as_deref(), scope, true, location) {
+            Ok(q) => q,
+            Err(ExecError::Runtime(m)) => {
+                self.report_plain(&m);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+        let (out, names) = self.out();
+        out.start_element(q, names).map_err(Self::output_err)?;
+        self.attribute_sets(attribute_sets, focus)?;
+        self.body(body, focus)?;
+        let (out, names) = self.out();
+        out.end_element(names).map_err(Self::output_err)
+    }
+
+    fn attribute(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::Attribute {
+            name,
+            namespace,
+            scope,
+            body,
+            location,
+        } = instr
+        else {
+            unreachable!("attribute: another instruction")
+        };
+        let name = self.avt(name, focus, location)?;
+        let ns = match namespace {
+            Some(a) => Some(self.avt(a, focus, location)?),
+            None => None,
+        };
+        // libxslt reports an invalid name or unbound prefix and
+        // skips the instruction.
+        let q = match self.computed_name(&name, ns.as_deref(), scope, false, location) {
+            Ok(q) => q,
+            Err(ExecError::Runtime(m)) => {
+                self.report_plain(&m);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+        if q.ns
+            .is_some_and(|u| self.names.str(u) == "http://www.w3.org/2000/xmlns/")
+        {
+            self.report(
+                location,
+                "xsl:attribute: Namespace http://www.w3.org/2000/xmlns/ forbidden.",
+            );
+            return Ok(());
+        }
+        if q.ns.is_none() && q.prefix.is_none() && self.names.str(q.local) == "xmlns" {
+            self.report(
+                location,
+                "xsl:attribute: The effective name 'xmlns' is not allowed.",
+            );
+            return Ok(());
+        }
+        let value = self.body_string(body, focus)?;
+        let mut q = q;
+        if let Some(uri) = q.ns {
+            let (out, names) = self.out();
+            if let Some(prefix) = out.attribute_prefix(uri, q.prefix, names) {
+                q.prefix = Some(prefix);
+            }
+        }
+        if let Err(OutputError::AttributeNotAllowed) =
+            self.out.last_mut().unwrap().add_attribute(q, value)
+        {
+            self.report(
+                location,
+                "xsl:attribute: Cannot add attributes to an element if children have been already added to the element.",
+            );
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    fn processing_instruction(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::ProcessingInstruction {
+            name,
+            body,
+            location,
+        } = instr
+        else {
+            unreachable!("processing_instruction: another instruction")
+        };
+        let target = self.avt(name, focus, location)?;
+        let data = self.body_string(body, focus)?;
+        if data.contains("?>") {
+            self.report(
+                location,
+                "xsl:processing-instruction: '?>' not allowed within PI content",
+            );
+            return Ok(());
+        }
+        let (out, names) = self.out();
+        let target = names.intern(target.trim());
+        out.pi(target, &data, names).map_err(Self::output_err)
+    }
+
+    fn number(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
+        let Instr::Number {
+            value,
+            level,
+            count,
+            from,
+            format,
+            grouping,
+            location,
+        } = instr
+        else {
+            unreachable!("number: another instruction")
+        };
+        let format = number::Format::parse(&self.avt(format, focus, location)?);
+        let numbers = match value {
+            // The compiler wraps `value` in number(), as libxslt does.
+            // libxslt evaluates "number(value)" by itself: a failure
+            // only means no number. An undefined variable is reported
+            // (by the variable lookup) but doesn't stop anything.
+            Some(v) => match self.eval_unmapped(v, focus, location)? {
+                Ok(Value::Number(n)) => Some(vec![n]),
+                Ok(_) => None,
+                Err(e) => {
+                    if e.message.starts_with("Undefined variable") {
+                        self.report(location, &format!("XPath error : {}", e.message));
+                    }
+                    None
+                }
+            },
+            None => {
+                self.count_numbers(*level, count.as_ref(), from.as_ref(), focus.node, location)?
+            }
+        };
+        // libxslt inserts the formatted number with
+        // xsltCopyTextString even when it's empty, leaving an empty
+        // text node (so `<out></out>`, not `<out/>`).
+        let text = match numbers {
+            Some(numbers) => {
+                let (text, warning) = number::insert_numbers(&numbers, &format, *grouping);
+                if let Some(w) = warning {
+                    self.warnings.borrow_mut().push(w);
+                }
+                text
+            }
+            None => String::new(),
+        };
+        let (out, names) = self.out();
+        if text.is_empty() {
+            out.empty_text(names).map_err(Self::output_err)
+        } else {
+            out.text(&text, false, names).map_err(Self::output_err)
         }
     }
 
