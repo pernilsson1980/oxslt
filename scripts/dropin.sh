@@ -4,6 +4,9 @@
 #   scripts/dropin.sh [package ...]    (default: tests/dropin/packages.txt)
 #   scripts/dropin.sh --list packages-2.txt [package ...]
 #   DROPIN_RESULTS=dir scripts/dropin.sh ...   (results there, not target/dropin/out)
+#   DROPIN_SOLO=packages-3b.txt scripts/dropin.sh --list packages-3b.txt
+#       (a list whose build dependencies conflict with the main image's, in an
+#        image of its own built from tests/dropin/Dockerfile.solo)
 #
 # 1. Builds a Linux oxslt in the oxslt-bench container.
 # 2. Builds the oxslt-dropin image (network: build dependencies and sources).
@@ -31,7 +34,14 @@ docker run --rm --platform "$platform" --network none \
   oxslt-bench bash -c 'cd /src && cargo build --release --offline --quiet --target-dir /build && cp /build/release/oxslt /bin-out/'
 
 # 2. The image, rebuilt only when tests/dropin changes.
-docker build --platform "$platform" -t oxslt-dropin "$here/tests/dropin"
+image=oxslt-dropin
+if [ -n "${DROPIN_SOLO:-}" ]; then
+  image=oxslt-dropin-${DROPIN_SOLO%.txt}
+  docker build --platform "$platform" -f "$here/tests/dropin/Dockerfile.solo" \
+    --build-arg LIST="$DROPIN_SOLO" -t "$image" "$here/tests/dropin"
+else
+  docker build --platform "$platform" -t "$image" "$here/tests/dropin"
+fi
 
 # 3. The builds: offline, read-only root, fresh results. The build area is a
 #    Docker volume, not a directory on the host: macOS's file system rejects
@@ -42,6 +52,6 @@ docker run --rm --platform "$platform" --network none --read-only \
   --tmpfs /tmp:exec,size=4g \
   -v "$dropin/bin/oxslt":/opt/oxslt/oxslt:ro \
   -v oxslt-dropin-work:/work -v "$out":/out \
-  oxslt-dropin /dropin/run.sh "$@"
+  "$image" /dropin/run.sh "$@"
 
 echo "results: $out (builds.tsv, calls.tsv, diffs/)"

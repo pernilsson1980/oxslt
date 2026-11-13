@@ -1,0 +1,12 @@
+# Third batch, part b: build dependencies that conflict with the main image's,
+# so built in an image of their own (Dockerfile.solo, LIST=packages-3b.txt).
+debian-policy
+kamailio
+nut
+openafs
+systemd
+sssd
+lastpass-cli
+syslog-ng
+cluster-glue
+gtk-doc

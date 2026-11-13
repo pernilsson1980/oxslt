@@ -1,0 +1,83 @@
+# Third drop-in batch (2026-11-13): large documentation sets, gtk-doc and
+# GNOME, big man-page builds, XSLT tools. Packages whose build dependencies
+# conflict with the image's are in packages-3b.txt and packages-3c.txt,
+# built in images of their own (Dockerfile.solo).
+# Large documentation sets (DocBook manuals and guides)
+gimp-help
+csound-manual
+gnucash-docs
+postgresql-15
+valgrind
+mkvtoolnix
+cppreference-doc
+aptitude
+gpsd
+bird
+claws-mail
+pidgin
+# Big man-page builds
+samba
+exim4
+freerdp2
+tpm2-tools
+fence-agents
+heartbeat
+snapper
+usbguard
+opendnssec
+plymouth
+kmscon
+ddccontrol
+offlineimap3
+partclone
+libloc
+voms
+sysbench
+# XSLT tools and heavy XSLT users
+xmlstarlet
+xmlformat
+scap-security-guide
+cockpit
+spatialite-tools
+librasterlite2
+chemical-structures
+spandsp
+fasttext
+gmp-ecm
+# gtk-doc and GNOME
+glib2.0
+gdk-pixbuf
+gtk+3.0
+glibmm2.4
+pangomm2.48
+atkmm1.6
+cairomm1.16
+gtkmm3.0
+libsigc++-2.0
+clutter-1.0
+gupnp
+libgpod
+gnome-terminal
+gnome-logs
+gnome-keyring
+gnome-dictionary
+gnome-disk-utility
+colord-gtk
+tracker-miners
+mate-session-manager
+mate-utils
+alacarte
+telepathy-idle
+telepathy-haze
+# Code generation and others
+capnproto
+exiv2
+inchi
+gyp
+fvwm
+qutebrowser
+compton
+herbstluftwm
+kakoune
+apertium
+ffmpegfs

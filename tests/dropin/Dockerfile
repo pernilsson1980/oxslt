@@ -1,5 +1,5 @@
 # The drop-in test image: Debian bookworm with the build dependencies and
-# sources of the packages in packages.txt and packages-2.txt, and the comparing wrapper installed
+# sources of the packages in packages.txt, packages-2.txt and packages-3.txt, and the comparing wrapper installed
 # as /usr/bin/xsltproc. Built with network access (scripts/dropin.sh); the
 # builds themselves run offline with a read-only root.
 FROM debian:bookworm
@@ -40,6 +40,20 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN apt-get update && cd /dropin/src \
  && for p in $(grep -v '^#' /dropin/packages-2.txt); do \
+      apt-get source --download-only "$p" || echo "$p" >> /dropin/source-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/*
+
+# The third batch, likewise.
+COPY packages-3.txt /dropin/packages-3.txt
+RUN apt-get update \
+ && for p in $(grep -v '^#' /dropin/packages-3.txt); do \
+      DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
+        || echo "$p" >> /dropin/build-dep-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && cd /dropin/src \
+ && for p in $(grep -v '^#' /dropin/packages-3.txt); do \
       apt-get source --download-only "$p" || echo "$p" >> /dropin/source-failed; \
     done \
  && rm -rf /var/lib/apt/lists/*

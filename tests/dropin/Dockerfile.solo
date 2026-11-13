@@ -1,0 +1,34 @@
+# A drop-in image for one package list whose build dependencies conflict with
+# the main image's (Dockerfile): Debian bookworm with only that list's build
+# dependencies and sources, and the comparing wrapper as /usr/bin/xsltproc.
+#   docker build -f Dockerfile.solo --build-arg LIST=packages-3b.txt ...
+# scripts/dropin.sh builds it when DROPIN_SOLO names the list.
+FROM debian:bookworm
+ARG LIST
+
+RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential devscripts fakeroot dpkg-dev xsltproc docbook-xsl docbook-xml \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY ${LIST} /dropin/${LIST}
+RUN apt-get update \
+ && for p in $(grep -v '^#' /dropin/${LIST}); do \
+      DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
+        || echo "$p" >> /dropin/build-dep-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/* \
+ && touch /dropin/build-dep-failed
+RUN apt-get update && mkdir -p /dropin/src && cd /dropin/src \
+ && for p in $(grep -v '^#' /dropin/${LIST}); do \
+      apt-get source --download-only "$p" || echo "$p" >> /dropin/source-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/* \
+ && touch /dropin/source-failed
+
+RUN dpkg-divert --add --rename --divert /usr/bin/xsltproc.real /usr/bin/xsltproc \
+ && mkdir -p /opt/oxslt
+COPY xsltproc-wrapper.sh /usr/bin/xsltproc
+COPY run.sh /dropin/run.sh
+RUN chmod 755 /usr/bin/xsltproc /dropin/run.sh

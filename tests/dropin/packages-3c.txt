@@ -1,0 +1,2 @@
+# Third batch, part c: docbook2x conflicts with packages-3b.txt too.
+docbook2x
