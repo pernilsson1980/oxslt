@@ -31,6 +31,7 @@ html-report-27MB|5|$w/html-report.xsl|$d/records-200k.xml|
 sort-27MB|5|$w/sort.xsl|$d/records-200k.xml|
 recursion-27MB|5|$w/recursion.xsl|$d/records-200k.xml|
 grouping-5k|5|$w/grouping.xsl|$d/records-5k.xml|
+docbook-chunked|3|/src/tests/docbook-xsl/usr/share/xml/docbook/stylesheet/docbook-xsl/xhtml/chunk.xsl|$d/book.xml|-o /tmp/chunks-TOOL/
 EOF
 }
 
@@ -40,18 +41,29 @@ peak_kb() { # command... -> peak resident set size in KB
 }
 
 echo "name|identical|xsltproc_kb|oxslt_kb" > /out/summary.txt
+# A workload writing files (`-o DIR/`, DocBook's chunker) names its
+# directory with TOOL, replaced by each tool's name; the directories are
+# compared too.
 while IFS='|' read -r name runs style input extra; do
+  xp_extra=${extra//TOOL/xsltproc} ox_extra=${extra//TOOL/oxslt}
+  rm -rf /tmp/chunks-xsltproc /tmp/chunks-oxslt
   # shellcheck disable=SC2086
-  set -- $extra
-  "$XP" "$@" "$style" "$input" > "/out/output/$name.xsltproc" 2>/dev/null || true
-  "$OX" "$@" "$style" "$input" > "/out/output/$name.oxslt" 2>/dev/null || true
-  if cmp -s "/out/output/$name.xsltproc" "/out/output/$name.oxslt"; then same=yes; else same=NO; fi
-  xp_kb=$(peak_kb "$XP" "$@" "$style" "$input")
-  ox_kb=$(peak_kb "$OX" "$@" "$style" "$input")
+  "$XP" $xp_extra "$style" "$input" > "/out/output/$name.xsltproc" 2>/dev/null || true
+  # shellcheck disable=SC2086
+  "$OX" $ox_extra "$style" "$input" > "/out/output/$name.oxslt" 2>/dev/null || true
+  same=yes
+  cmp -s "/out/output/$name.xsltproc" "/out/output/$name.oxslt" || same=NO
+  if [[ $extra == *TOOL* ]]; then
+    diff -rq /tmp/chunks-xsltproc /tmp/chunks-oxslt > /dev/null 2>&1 || same=NO
+  fi
+  # shellcheck disable=SC2086
+  xp_kb=$(peak_kb "$XP" $xp_extra "$style" "$input")
+  # shellcheck disable=SC2086
+  ox_kb=$(peak_kb "$OX" $ox_extra "$style" "$input")
   echo "$name|$same|$xp_kb|$ox_kb" >> /out/summary.txt
   printf '%-28s identical: %-3s  ' "$name" "$same"
   hyperfine -N --style none --warmup 2 --runs "$runs" --export-json "/out/json/$name.json" \
-    -n xsltproc "$XP $extra $style $input" -n oxslt "$OX $extra $style $input" > /dev/null 2>&1
+    -n xsltproc "$XP $xp_extra $style $input" -n oxslt "$OX $ox_extra $style $input" > /dev/null 2>&1
   python3 /src/tests/bench/summary.py /out "$name"
 done < <(workloads)
 

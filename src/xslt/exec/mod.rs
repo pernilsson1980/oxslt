@@ -98,6 +98,16 @@ pub struct Transform<'a> {
     /// Local variables and parameters of the calls below the current one.
     outer_locals: usize,
     max_vars: usize,
+    /// The documents `var_value` made for variables and parameters built
+    /// from content, in order, and the globals computed so far, in order:
+    /// a template call frees the fragments made during it when it returns
+    /// (`free_fragments`), except those a global computed meanwhile holds.
+    var_fragments: Vec<u32>,
+    computed_globals: Vec<Name>,
+    /// xsl:number's counts by (instruction, node), for instructions whose
+    /// patterns are pure (`Pattern::is_pure`, remembered by instruction).
+    number_cache: HashMap<(usize, NodeRef), Option<Vec<f64>>>,
+    number_pure: HashMap<usize, bool>,
     /// Where the stack was when the transform started, and how far it may
     /// grow (`Limits::stack`).
     stack_base: usize,
@@ -240,6 +250,10 @@ impl<'a> Transform<'a> {
             max_depth: limits.max_depth.unwrap_or(MAX_DEPTH),
             outer_locals: 0,
             max_vars: limits.max_vars.unwrap_or(MAX_VARS),
+            var_fragments: Vec::new(),
+            computed_globals: Vec::new(),
+            number_cache: HashMap::new(),
+            number_pure: HashMap::new(),
             stack_base: stack_address(),
             stack_limit: limits.stack,
             ids: RefCell::new(SymMap::default()),
@@ -462,6 +476,7 @@ impl<'a> Transform<'a> {
         self.current_rule = saved_rule;
         self.computing.pop();
         self.globals.insert(name, value?);
+        self.computed_globals.push(name);
         Ok(())
     }
 
@@ -615,6 +630,7 @@ impl<'a> Transform<'a> {
                 self.docs.push(doc);
                 let id = u32::try_from(self.docs.len() - 1)
                     .map_err(|_| ExecError::Runtime("Too many documents".into()))?;
+                self.var_fragments.push(id);
                 Ok(Value::Tree(NodeRef::new(
                     id,
                     self.docs.last().unwrap().root(),
@@ -734,6 +750,7 @@ impl<'a> Transform<'a> {
         }
         let saved = std::mem::take(&mut self.locals);
         self.outer_locals += saved.len();
+        let marks = (self.var_fragments.len(), self.computed_globals.len());
         let mut result = Ok(());
         // The parameters are bound outside the body's sequence
         // constructor, at the caller's depth.
@@ -755,7 +772,39 @@ impl<'a> Transform<'a> {
         }
         self.outer_locals -= saved.len();
         self.locals = saved;
+        self.free_fragments(marks);
         result
+    }
+
+    /// Frees the variable fragments made since `marks` (a template call's
+    /// start), as libxslt frees a call's local result tree fragments when
+    /// it returns: its variables and parameters are gone, and nothing else
+    /// can refer to them, except a global computed during the call, whose
+    /// fragments stay. A freed document's slot is left empty, so document
+    /// numbers (node identity, `generate-id()`) are never reused.
+    fn free_fragments(&mut self, (fragments, globals): (usize, usize)) {
+        if self.var_fragments.len() == fragments {
+            return;
+        }
+        let mut kept = std::collections::HashSet::new();
+        for name in &self.computed_globals[globals..] {
+            if let Some(v) = self.globals.get(name) {
+                match v {
+                    Value::Tree(n) => {
+                        kept.insert(n.doc);
+                    }
+                    Value::NodeSet(ns) => kept.extend(ns.iter().map(|n| n.doc)),
+                    _ => {}
+                }
+            }
+        }
+        for id in self.var_fragments.split_off(fragments) {
+            if kept.contains(&id) {
+                continue;
+            }
+            let freed = Document::freed();
+            self.docs[id as usize] = freed;
+        }
     }
 
     fn with_params(&mut self, params: &[Variable], focus: &Focus) -> R<Vec<(Name, Value)>> {
@@ -1311,7 +1360,32 @@ impl<'a> Transform<'a> {
                 }
             },
             None => {
-                self.count_numbers(*level, count.as_ref(), from.as_ref(), focus.node, location)?
+                // The documents don't change during a transform, so with
+                // patterns that depend on nothing else the count for a node
+                // is always the same: DocBook numbers each figure and table
+                // again for every reference to it, each time walking back
+                // through the chapter (level="any").
+                let key = (std::ptr::from_ref(instr) as usize, focus.node);
+                let pure = *self.number_pure.entry(key.0).or_insert_with(|| {
+                    count.as_ref().is_none_or(Pattern::is_pure)
+                        && from.as_ref().is_none_or(Pattern::is_pure)
+                });
+                match self.number_cache.get(&key) {
+                    Some(n) if pure => n.clone(),
+                    _ => {
+                        let n = self.count_numbers(
+                            *level,
+                            count.as_ref(),
+                            from.as_ref(),
+                            focus.node,
+                            location,
+                        )?;
+                        if pure {
+                            self.number_cache.insert(key, n.clone());
+                        }
+                        n
+                    }
+                }
             }
         };
         // libxslt inserts the formatted number with

@@ -4,8 +4,9 @@
 #
 #   scripts/bench.sh
 #
-# Needs docker (Colima), python3, and the fetched real stylesheets
-# (scripts/fetch-real-stylesheets.sh). Results go to target/bench-results/:
+# Needs docker (Colima), python3, the fetched real stylesheets
+# (scripts/fetch-real-stylesheets.sh) and DocBook XSL
+# (scripts/fetch-docbook-xsl.sh). Results go to target/bench-results/:
 # summary.txt (identical output? peak memory), json/ (hyperfine timings) and
 # output/ (both tools' output for every workload).
 
@@ -16,7 +17,8 @@ results=$here/target/bench-results
 image=oxslt-bench
 
 [[ -d $here/tests/real ]] || { echo "run scripts/fetch-real-stylesheets.sh first" >&2; exit 1; }
-[[ -f $data/records-200k.xml ]] || python3 -I "$here/scripts/bench-data.py" "$data"
+[[ -f $data/records-200k.xml && -f $data/book.xml ]] || python3 -I "$here/scripts/bench-data.py" "$data"
+[[ -d $here/tests/docbook-xsl ]] || { echo "run scripts/fetch-docbook-xsl.sh first" >&2; exit 1; }
 # A larger real input for Wireshark's Values.xsl, from the same pinned commit.
 [[ -f $data/FIX50SP2.xml ]] || curl -sfL \
   https://raw.githubusercontent.com/wireshark/wireshark/1adccc3f1befa4b13e877827b7e765703d5c2ce7/fix/FIX50SP2.xml \

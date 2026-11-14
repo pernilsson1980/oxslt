@@ -260,8 +260,44 @@ pub enum TextKind {
     Cdata,
 }
 
+/// A document: a handle to its data (`DocumentData`, whose methods it
+/// gives through `Deref`), or nothing once a transform has freed it. A
+/// handle is a pointer, so the documents a transform has made and freed
+/// (DocBook builds make a million result tree fragments) cost almost
+/// nothing, while their numbers stay taken.
 #[derive(Debug)]
-pub struct Document {
+pub struct Document(Option<Box<DocumentData>>);
+
+impl std::ops::Deref for Document {
+    type Target = DocumentData;
+
+    fn deref(&self) -> &DocumentData {
+        self.0.as_deref().expect("a freed document isn't used")
+    }
+}
+
+impl std::ops::DerefMut for Document {
+    fn deref_mut(&mut self) -> &mut DocumentData {
+        self.0.as_deref_mut().expect("a freed document isn't used")
+    }
+}
+
+impl Document {
+    /// What takes the place of a freed result tree fragment: nothing, so
+    /// its number stays taken but its memory is gone.
+    pub fn freed() -> Document {
+        Document(None)
+    }
+
+    /// Whether this document was freed.
+    pub fn is_freed(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+/// A document's nodes, text and declarations.
+#[derive(Debug)]
+pub struct DocumentData {
     nodes: Vec<Node>,
     text: String,
     ns_decls: Vec<NsDecl>,
@@ -289,7 +325,7 @@ pub struct Document {
     pub html: bool,
 }
 
-impl Document {
+impl DocumentData {
     pub fn root(&self) -> NodeId {
         NodeId(0)
     }
@@ -333,6 +369,31 @@ impl Document {
 
     pub fn prev_sibling(&self, id: NodeId) -> Option<NodeId> {
         self.node(id).prev_sibling
+    }
+
+    /// The node after `id`'s subtree in the arena, which keeps document
+    /// order (an element, its attributes, then its children): `id`'s
+    /// descendants and their attributes are exactly the nodes between them.
+    pub fn subtree_end(&self, id: NodeId) -> NodeId {
+        let mut cur = id;
+        loop {
+            if let Some(s) = self.next_sibling(cur) {
+                return s;
+            }
+            match self.parent(cur) {
+                Some(p) => cur = p,
+                None => return NodeId(self.nodes.len() as u32),
+            }
+        }
+    }
+
+    /// `id`'s descendants in document order (attributes aren't
+    /// descendants): a scan of its subtree's range of the arena.
+    pub fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        let end = self.subtree_end(id).0;
+        (id.0 + 1..end)
+            .map(NodeId)
+            .filter(|&n| !matches!(self.kind(n), NodeKind::Attribute { .. }))
     }
 
     /// The element with this ID, for XPath's `id()`.
@@ -457,6 +518,13 @@ impl Document {
     }
 
     pub fn string_value(&self, id: NodeId) -> String {
+        self.string_value_prefix(id, usize::MAX)
+    }
+
+    /// The string value up to at least `bytes` bytes (all of it when
+    /// shorter): enough for libxml2's two-byte value hash without building
+    /// a large element's whole value.
+    pub fn string_value_prefix(&self, id: NodeId, bytes: usize) -> String {
         if let Some(v) = self.value(id) {
             return v.to_string();
         }
@@ -465,7 +533,12 @@ impl Document {
         stack.reverse();
         while let Some(n) = stack.pop() {
             match self.kind(n) {
-                NodeKind::Text(s) => out.push_str(self.str(s)),
+                NodeKind::Text(s) => {
+                    out.push_str(self.str(s));
+                    if out.len() >= bytes {
+                        break;
+                    }
+                }
                 NodeKind::Element { .. } => {
                     let start = stack.len();
                     stack.extend(self.children(n));
@@ -480,7 +553,7 @@ impl Document {
 
 #[derive(Debug)]
 pub struct Children<'a> {
-    doc: &'a Document,
+    doc: &'a DocumentData,
     next: Option<NodeId>,
 }
 
@@ -508,7 +581,7 @@ impl std::error::Error for TooLarge {}
 /// Builds a [`Document`] in document order. Used by the parser.
 #[derive(Debug)]
 pub struct Builder {
-    doc: Document,
+    doc: DocumentData,
     open: Vec<NodeId>,
     /// Set by `break_text`: the next text starts a node of its own.
     text_break: bool,
@@ -532,7 +605,7 @@ impl Builder {
             line: 0,
         };
         Builder {
-            doc: Document {
+            doc: DocumentData {
                 nodes: vec![root],
                 text: String::new(),
                 ns_decls: Vec::new(),
@@ -760,7 +833,7 @@ impl Builder {
     }
 
     pub fn finish(self) -> Document {
-        self.doc
+        Document(Some(Box::new(self.doc)))
     }
 }
 

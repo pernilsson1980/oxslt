@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<out>
+  <pure n="1">1/1</pure>
+  <pure n="skip">1/1</pure>
+  <pure n="3">2/2</pure>
+  <pure n="4">1/1</pure>
+  <pure n="5">2/2</pure>
+  <var kind="a">1</var>
+  <var kind="b">0</var>
+  <var kind="a">1</var>
+  <var kind="b">1</var>
+  <var kind="a">2</var>
+  <var kind="b">1</var>
+  <var kind="a">2</var>
+  <var kind="b">2</var>
+  <var kind="a">3</var>
+  <var kind="b">2</var>
+  <ids>1:id1</ids>
+  <ids>2:id2</ids>
+  <ids>3:id3</ids>
+  <ids>4:id4</ids>
+  <ids>5:id5</ids>
+</out>

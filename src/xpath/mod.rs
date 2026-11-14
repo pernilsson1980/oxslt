@@ -11,6 +11,7 @@ pub(crate) mod lexer;
 pub mod number;
 mod parser;
 
+pub(crate) use eval::is_pure;
 pub use eval::{
     Empty, Env, Focus, Functions, Variables, boolean, evaluate, evaluate_nodes, is_attribute,
     is_position_independent, is_root, node_matches, round, sort_dedup, step_nodes, to_number,

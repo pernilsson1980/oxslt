@@ -1,6 +1,6 @@
 # Benchmarks: oxslt vs xsltproc
 
-Measured 2026-11-09 with `scripts/bench.sh`, after roadmap steps 2 and 3, the hardening work, LTO, the allocation cuts and the hot-path work below. The run also writes `target/bench-results/summary.md`; rerun the script to refresh these numbers.
+Measured 2026-11-15 with `scripts/bench.sh`, after the large DocBook build work below (the 2026-11-09 numbers are in the git history). The run also writes `target/bench-results/summary.md`; rerun the script to refresh these numbers.
 
 ## Setup
 
@@ -9,7 +9,7 @@ Measured 2026-11-09 with `scripts/bench.sh`, after roadmap steps 2 and 3, the ha
 - **oxslt:** a release build with fat LTO and one codegen unit (`[profile.release]` in `Cargo.toml`), no profile-guided optimisation, Rust 1.99.1.
 - **Timing:** `hyperfine`, wall time, 2 warm-up runs, then 20 runs (5 for the big workloads). The ± column is the standard deviation.
 - **Memory:** peak resident set size, from GNU `time`.
-- **Correctness:** every workload's output is compared first, and it's **byte-identical for all 14**.
+- **Correctness:** every workload's output is compared first (for `docbook-chunked`, every file it writes), and it's **byte-identical for all 15**.
 
 ## Results
 
@@ -17,22 +17,23 @@ Measured 2026-11-09 with `scripts/bench.sh`, after roadmap steps 2 and 3, the ha
 
 | Workload | Identical | xsltproc ms | oxslt ms | Speed (xsltproc time / oxslt time) | xsltproc MB | oxslt MB |
 |---|---|---:|---:|---:|---:|---:|
-| gnucash-iso | yes | 3.3 ± 0.2 | 1.9 ± 0.2 | 1.69x | 6.2 | 3.1 |
-| gimp-authors | yes | 2.5 ± 0.1 | 1.6 ± 0.1 | 1.59x | 5.8 | 2.9 |
-| darktable-prefs | yes | 10.1 ± 0.3 | 7.8 ± 0.2 | 1.30x | 7.9 | 4.6 |
-| darktable-conf | yes | 7.2 ± 0.2 | 5.5 ± 0.1 | 1.32x | 7.5 | 4.4 |
-| fluidsynth-html | yes | 3.9 ± 0.2 | 3.3 ± 0.1 | 1.18x | 6.8 | 3.9 |
-| wireshark-values | yes | 14.5 ± 0.2 | 5.7 ± 0.1 | 2.55x | 10.5 | 5.0 |
-| wireshark-hfdecl | yes | 9.8 ± 0.2 | 4.9 ± 0.2 | 2.00x | 10.8 | 5.0 |
-| wireshark-hflist | yes | 6.2 ± 0.1 | 3.9 ± 0.1 | 1.60x | 10.6 | 4.9 |
-| wireshark-values-FIX50SP2 | yes | 31.8 ± 0.4 | 9.2 ± 0.2 | 3.46x | 13.3 | 6.5 |
-| identity-27MB | yes | 1003.4 ± 6.5 | 693.2 ± 3.5 | 1.45x | 659.0 | 356.1 |
-| html-report-27MB | yes | 2459.7 ± 14.7 | 1095.3 ± 3.2 | 2.25x | 717.7 | 390.0 |
-| sort-27MB | yes | 968.0 ± 1.2 | 544.4 ± 2.8 | 1.78x | 377.9 | 224.6 |
-| recursion-27MB | yes | 2748.2 ± 31.0 | 1787.6 ± 6.6 | 1.54x | 336.5 | 198.1 |
-| grouping-5k | yes | 554.9 ± 2.1 | 714.3 ± 0.4 | 0.78x | 14.1 | 7.5 |
+| gnucash-iso | yes | 3.2 ± 0.1 | 1.9 ± 0.2 | 1.69x | 6.1 | 3.2 |
+| gimp-authors | yes | 2.5 ± 0.0 | 1.7 ± 0.1 | 1.46x | 5.8 | 3.0 |
+| darktable-prefs | yes | 10.2 ± 0.3 | 8.0 ± 0.2 | 1.27x | 7.8 | 4.8 |
+| darktable-conf | yes | 7.3 ± 0.2 | 5.9 ± 0.1 | 1.24x | 7.5 | 4.4 |
+| fluidsynth-html | yes | 3.9 ± 0.1 | 3.5 ± 0.2 | 1.12x | 6.8 | 3.8 |
+| wireshark-values | yes | 14.9 ± 0.3 | 6.1 ± 0.2 | 2.43x | 10.5 | 5.0 |
+| wireshark-hfdecl | yes | 10.2 ± 0.4 | 5.5 ± 0.6 | 1.85x | 10.8 | 5.0 |
+| wireshark-hflist | yes | 6.7 ± 0.5 | 4.3 ± 0.1 | 1.57x | 10.5 | 4.9 |
+| wireshark-values-FIX50SP2 | yes | 31.9 ± 0.3 | 9.8 ± 0.2 | 3.27x | 13.3 | 6.5 |
+| identity-27MB | yes | 1057.5 ± 16.0 | 787.8 ± 10.0 | 1.34x | 659.0 | 356.1 |
+| html-report-27MB | yes | 2589.8 ± 12.7 | 1177.7 ± 5.9 | 2.20x | 717.7 | 390.1 |
+| sort-27MB | yes | 1015.7 ± 3.7 | 628.5 ± 6.5 | 1.62x | 377.9 | 224.6 |
+| recursion-27MB | yes | 2790.9 ± 24.2 | 1966.2 ± 38.1 | 1.42x | 336.4 | 198.1 |
+| grouping-5k | yes | 566.3 ± 3.1 | 760.6 ± 41.3 | 0.74x | 14.0 | 7.5 |
+| docbook-chunked | yes | 11444.5 ± 690.2 | 8031.7 ± 299.9 | 1.42x | 56.8 | 44.7 |
 
-**oxslt is faster on 13 of the 14 workloads and slower on one, grouping. It uses about half the memory on every one of them.**
+**oxslt is faster on 14 of the 15 workloads and slower on one, grouping. It uses less memory on every one of them, about half on all but the DocBook build.**
 
 **DocBook** (not yet a scripted workload), timed the same way with `html/docbook.xsl` and the DTD loaded through the catalog: `vipw.8` 84.2 ms for xsltproc, 65.0 ms for oxslt (1.30x); `usermod.8` 99.6 ms and 78.2 ms (1.27x); compiling alone (an empty `<article/>`) 61.7 ms and 46.5 ms (1.33x). Output identical. Compiling the stylesheet is still most of oxslt's time there.
 
@@ -53,6 +54,8 @@ Measured 2026-11-09 with `scripts/bench.sh`, after roadmap steps 2 and 3, the ha
 | `grouping` | Grouping without keys, `r[not(@cat = preceding-sibling::r/@cat)]`. Quadratic by design. |
 
 The four large ones use a 27 MB file of 200,000 records; `grouping` uses 5,000.
+
+- **docbook-chunked** (added 2026-11-15): DocBook XSL's `xhtml/chunk.xsl` (the reference container's copy, fetched by `scripts/fetch-docbook-xsl.sh`) over `book.xml`, a generated DocBook 4 book (30 chapters of 12 sections, each with numbered figures and tables, cross-references and index terms; `scripts/bench-data.py`). It writes 400 pages; both tools write into their own directory and every file is compared. It stands in for large real manuals, which none of the other workloads resembled.
 
 ## Fixed while benchmarking
 
@@ -141,6 +144,21 @@ DocBook's `html/docbook.xsl` is 55 modules, 1.4 MB, 2,059 templates and about 3,
 - **`NamePool::intern` has a front cache** of 512 slots, picked by a fast hash and confirmed by comparing the string. Collisions only cause misses, which fall back to the SipHash table, so it can't be made slower than before.
 - **Text events check for `]` before searching for `]]>`.**
 - **The binary doesn't free the compiled stylesheet and names** (`oxslt::run_before_exit`); the library's `run` still does.
+
+## Large chunked DocBook builds (2026-11-15)
+
+Drop-in testing found oxslt about 15% slower than xsltproc on GIMP's manual and 37% slower on Csound's (1,751 pages from one document), where these benchmarks had it faster. Profiling those builds (gdb stack samples in the offline container) found four causes, all fixed:
+
+- **`xsl:number level="any"`** walks back through every preceding node, testing the `count` and `from` patterns on each, as libxslt does; oxslt set up an XPath evaluation for every test. Patterns are now checked against the node's kind and name first (`could_match`, as template rules were), and a count is cached by instruction and node when its patterns use no variables and no functions outside XPath's core (`Pattern::is_pure`): the documents never change, and DocBook numbers each figure again for every reference to it.
+- **`=` between node-sets** built every node's whole string value to hash its first two bytes. Like libxml2's xmlXPathEqualNodeSets, oxslt now hashes only the bytes it needs and builds a value only when its hash matches.
+- **The descendant axis** walked the tree with a stack and buffered every descendant before testing them. The arena keeps document order, so a node's descendants are one range of it: the axis is now a scan of that range, tested as it goes.
+- **Result tree fragments were never freed**: the synthetic book makes a million (variables built from content), and oxslt used 610 MB where xsltproc uses 57. A template call now frees the fragments its variables made when it returns, and a freed document costs a pointer (`Document` is a handle to its data). Measured cost: about 5–7% on the 27 MB workloads, from the extra pointer.
+
+| | xsltproc | oxslt before | oxslt after |
+|---|---:|---:|---:|
+| GIMP manual, English (686 pages) | 78–88 s | 90.5 s | 45.2 s |
+| Csound manual (1,751 pages) | 580–609 s | 821 s | 499 s |
+| docbook-chunked | 11.4 s, 57 MB | 12.4 s, 610 MB | 8.0 s, 45 MB |
 
 ## Compiling template bodies on first use: measured, not done
 

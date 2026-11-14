@@ -11,6 +11,23 @@ pub struct Pattern {
     pub alternatives: Vec<Alternative>,
 }
 
+impl Pattern {
+    /// Whether matching depends only on the node and its documents
+    /// (`xpath::is_pure` for every predicate and anchor).
+    pub fn is_pure(&self) -> bool {
+        self.alternatives.iter().all(|a| {
+            let anchor = match &a.anchor {
+                Anchor::Call(e) => crate::xpath::is_pure(e),
+                Anchor::None | Anchor::Root => true,
+            };
+            anchor
+                && a.steps
+                    .iter()
+                    .all(|s| s.predicates.iter().all(crate::xpath::is_pure))
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Alternative {
     pub anchor: Anchor,

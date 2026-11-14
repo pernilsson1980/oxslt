@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<out>
+  <call n="1" global="global-2">
+    <inner value="1" passed="2" tmp="inner"/>
+    <inner value="second" passed="2" tmp="inner"/>
+  </call>
+  <call n="2" global="global-2">
+    <inner value="2" passed="2" tmp="inner"/>
+    <inner value="second" passed="2" tmp="inner"/>
+  </call>
+  <call n="3" global="global-2">
+    <inner value="3" passed="2" tmp="inner"/>
+    <inner value="second" passed="2" tmp="inner"/>
+  </call>
+  <after-calls global="2" first="global-1"/>
+  <ids>
+    <id a="id1" b="id2" x="id3"/>
+    <id a="id4" b="id5" x="id6"/>
+    <id a="id7" b="id8" x="id9"/>
+  </ids>
+</out>

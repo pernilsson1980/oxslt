@@ -9,7 +9,7 @@
 use super::ast::*;
 use super::number;
 use super::{NodeRef, Value, XPathError};
-use crate::tree::{Document, NamePool, NodeId, NodeKind, Sym};
+use crate::tree::{Document, DocumentData, NamePool, NodeId, NodeKind, Sym};
 
 mod functions;
 pub use functions::round;
@@ -342,9 +342,31 @@ fn eval_path(path: &Path, env: &Env, focus: &Focus) -> R<Vec<NodeRef>> {
         let mut next = Vec::new();
         for &n in context {
             found.clear();
-            axis_nodes(step.axis, n, env, &mut found);
-            env.funcs.tick(1 + found.len() as u64)?;
-            found.retain(|&m| matches_test(&step.test, step.axis, m, env));
+            if matches!(step.axis, Axis::Descendant | Axis::DescendantOrSelf) && n.ns == 0 {
+                // The node test applied during the scan: no buffer of every
+                // descendant (`//name` over a large document).
+                let doc = env.doc(n);
+                let mut scanned = 0u64;
+                if step.axis == Axis::DescendantOrSelf
+                    && matches_test(&step.test, step.axis, n, env)
+                {
+                    found.push(n);
+                }
+                if !matches!(doc.kind(n.node), NodeKind::Attribute { .. }) {
+                    for id in doc.descendants(n.node) {
+                        scanned += 1;
+                        let m = env.at(n, id);
+                        if matches_test(&step.test, step.axis, m, env) {
+                            found.push(m);
+                        }
+                    }
+                }
+                env.funcs.tick(1 + scanned)?;
+            } else {
+                axis_nodes(step.axis, n, env, &mut found);
+                env.funcs.tick(1 + found.len() as u64)?;
+                found.retain(|&m| matches_test(&step.test, step.axis, m, env));
+            }
             if step.predicates.is_empty() {
                 if context.len() == 1 {
                     // The only context node: its nodes are the step's result.
@@ -466,6 +488,31 @@ fn uses_position(e: &Expr) -> bool {
     }
 }
 
+/// Whether `e` depends only on its context and the documents: no variable
+/// references and no functions outside XPath's core library (so neither
+/// `generate-id()`, which numbers nodes as it's first asked, nor `key()`,
+/// `current()`, `document()` or extensions). Evaluating it again on the
+/// same node gives the same result, with no side effect.
+pub fn is_pure(e: &Expr) -> bool {
+    let path_pure = |p: &Path| {
+        matches!(&p.start, PathStart::Root | PathStart::Context)
+            || matches!(&p.start, PathStart::Expr(s) if is_pure(s))
+    } && p.steps.iter().all(|s| s.predicates.iter().all(is_pure));
+    match e {
+        Expr::Call(Function::Core(_), args) => args.iter().all(is_pure),
+        Expr::Call(Function::Other(_), _) | Expr::Variable(_) => false,
+        Expr::Or(a, b)
+        | Expr::And(a, b)
+        | Expr::Compare(_, a, b)
+        | Expr::Arith(_, a, b)
+        | Expr::Union(a, b) => is_pure(a) && is_pure(b),
+        Expr::Negate(a) => is_pure(a),
+        Expr::Filter(p, preds) => is_pure(p) && preds.iter().all(is_pure),
+        Expr::Path(p) => path_pure(p),
+        Expr::Literal(_) | Expr::Number(_) => true,
+    }
+}
+
 /// Whether `n` passes `test` on `axis` (which sets the principal node type).
 pub fn node_matches(test: &NodeTest, axis: Axis, n: NodeRef, env: &Env) -> bool {
     matches_test(test, axis, n, env)
@@ -565,9 +612,9 @@ fn axis_nodes(axis: Axis, n: NodeRef, env: &Env, out: &mut Vec<NodeRef>) {
                 return;
             }
             let step = if axis == Axis::FollowingSibling {
-                Document::next_sibling
+                DocumentData::next_sibling
             } else {
-                Document::prev_sibling
+                DocumentData::prev_sibling
             };
             let mut cur = step(doc, n.node);
             while let Some(s) = cur {
@@ -618,20 +665,28 @@ fn axis_nodes(axis: Axis, n: NodeRef, env: &Env, out: &mut Vec<NodeRef>) {
     }
 }
 
-/// Appends the descendants of `n` in document order, iteratively.
+/// Appends the descendants of `n` in document order: a scan of its
+/// subtree's range of the arena (`Document::descendants`).
 fn descendants(n: NodeRef, env: &Env, out: &mut Vec<NodeRef>) {
+    let start = out.len();
+    out.extend(env.doc(n).descendants(n.node).map(|id| env.at(n, id)));
+    debug_assert_eq!(&out[start..], walked_descendants(n, env).as_slice());
+}
+
+/// The descendants found by walking the tree: what the arena scan must
+/// give, checked in debug builds.
+fn walked_descendants(n: NodeRef, env: &Env) -> Vec<NodeRef> {
     let doc = env.doc(n);
-    let mut stack: Vec<NodeId> = Vec::new();
-    let push_children = |stack: &mut Vec<NodeId>, id: NodeId| {
+    let mut out = Vec::new();
+    let mut stack: Vec<NodeId> = doc.children(n.node).collect();
+    stack.reverse();
+    while let Some(id) = stack.pop() {
+        out.push(env.at(n, id));
         let start = stack.len();
         stack.extend(doc.children(id));
         stack[start..].reverse();
-    };
-    push_children(&mut stack, n.node);
-    while let Some(id) = stack.pop() {
-        out.push(env.at(n, id));
-        push_children(&mut stack, id);
     }
+    out
 }
 
 fn matches_test(test: &NodeTest, axis: Axis, n: NodeRef, env: &Env) -> bool {
@@ -728,35 +783,10 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
     match (a, b) {
         (NodeSet(x), NodeSet(y)) => {
             if matches!(op, CompareOp::Eq | CompareOp::Ne) {
-                // Hash one side's values, as libxml2's xmlXPathEqualNodeSets
-                // does, instead of comparing every pair.
                 if x.is_empty() || y.is_empty() {
                     return false;
                 }
-                if op == CompareOp::Eq {
-                    // With a small side, a direct scan beats hashing the other
-                    // (`@cat = preceding-sibling::r/@cat` compares one value
-                    // with thousands).
-                    let (small, big) = if x.len() <= y.len() { (x, y) } else { (y, x) };
-                    if small.len() <= 8 {
-                        let values: Vec<_> = small.iter().map(|&n| eq_key(env, n)).collect();
-                        return big.iter().any(|&n| {
-                            let v = eq_key(env, n);
-                            values.contains(&v)
-                        });
-                    }
-                    let set: std::collections::HashSet<(u32, std::borrow::Cow<'_, str>)> =
-                        small.iter().map(|&n| eq_key(env, n)).collect();
-                    return big.iter().any(|&n| set.contains(&eq_key(env, n)));
-                }
-                let ys: std::collections::HashSet<(u32, std::borrow::Cow<'_, str>)> =
-                    y.iter().map(|&n| eq_key(env, n)).collect();
-                // Some pair differs unless every value on both sides is one and the same.
-                if ys.len() > 1 {
-                    return true;
-                }
-                let only = ys.iter().next().expect("y is not empty");
-                x.iter().any(|&n| eq_key(env, n) != *only)
+                equal_node_sets(op == CompareOp::Ne, x, y, env)
             } else {
                 let ys: Vec<f64> = y
                     .iter()
@@ -774,6 +804,88 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
     }
 }
 
+/// `=` or `!=` between two non-empty node-sets, as libxml2's
+/// xmlXPathEqualNodeSets decides it: two nodes are equal when their value
+/// hashes (`eq_hash`) and then their string values match. As in libxml2, a
+/// node's whole string value is only built when its hash matches another's,
+/// which saves building large elements' values. The smaller side is grouped
+/// by hash instead of comparing every pair.
+fn equal_node_sets(neq: bool, x: &[NodeRef], y: &[NodeRef], env: &Env) -> bool {
+    use std::borrow::Cow;
+    use std::collections::HashMap;
+    if neq {
+        // Some pair differs unless every node on both sides has one and the
+        // same value. Different hashes settle it without any value.
+        let h = eq_hash(env, y[0]);
+        if y.iter().chain(x).any(|&n| eq_hash(env, n) != h) {
+            return true;
+        }
+        let first = env.string_value_cow(y[0]);
+        return y.iter().chain(x).any(|&n| env.string_value_cow(n) != first);
+    }
+    let (small, big) = if x.len() <= y.len() { (x, y) } else { (y, x) };
+    let mut by_hash: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (i, &n) in small.iter().enumerate() {
+        by_hash.entry(eq_hash(env, n)).or_default().push(i);
+    }
+    let mut values: Vec<Option<Cow<'_, str>>> = vec![None; small.len()];
+    for &n in big {
+        let Some(candidates) = by_hash.get(&eq_hash(env, n)) else {
+            continue;
+        };
+        let value = env.string_value_cow(n);
+        for &i in candidates {
+            let v = values[i].get_or_insert_with(|| env.string_value_cow(small[i]));
+            if *v == value {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// xmlXPathNodeValHash: the first two bytes of a node's string value,
+/// except for a document node, hashed by its first element child (or first
+/// child), and an HTML document node, which hashes as 0. So a fragment like
+/// `<a>1</a><b>2</b>` isn't equal to "12". Only as much of the value is
+/// built as the hash needs.
+fn eq_hash(env: &Env, n: NodeRef) -> u32 {
+    let doc = env.doc(n);
+    if n.ns > 0 {
+        return str_hash(&env.string_value_cow(n));
+    }
+    if let Some(v) = doc.value(n.node) {
+        return str_hash(v);
+    }
+    let node = if matches!(doc.kind(n.node), NodeKind::Root) {
+        if doc.html {
+            return 0;
+        }
+        let mut children = doc.children(n.node);
+        let first = doc
+            .children(n.node)
+            .find(|&c| matches!(doc.kind(c), NodeKind::Element { .. }))
+            .or_else(|| children.next());
+        match first {
+            Some(c)
+                if matches!(
+                    doc.kind(c),
+                    NodeKind::Element { .. }
+                        | NodeKind::Text(_)
+                        | NodeKind::Comment(_)
+                        | NodeKind::Pi { .. }
+                ) =>
+            {
+                c
+            }
+            _ => return 0,
+        }
+    } else {
+        n.node
+    };
+    str_hash(&doc.string_value_prefix(node, 2))
+}
+
 /// xmlXPathStringHash: the first two bytes of a string.
 fn str_hash(s: &str) -> u32 {
     let b = s.as_bytes();
@@ -782,41 +894,6 @@ fn str_hash(s: &str) -> u32 {
         [x] => u32::from(*x),
         [x, y, ..] => u32::from(*x) + (u32::from(*y) << 8),
     }
-}
-
-/// What libxml2's `=` and `!=` compare a node by: xmlXPathNodeValHash and
-/// the string value. Two nodes are equal when both match. The hash is the
-/// value's first two bytes, except for a document node, where libxml2
-/// hashes its first element child (or first child) instead, and an HTML
-/// document node, which hashes as 0. So a fragment like `<a>1</a><b>2</b>`
-/// isn't equal to "12".
-fn eq_key<'e>(env: &'e Env, n: NodeRef) -> (u32, std::borrow::Cow<'e, str>) {
-    let value = env.string_value_cow(n);
-    let doc = env.doc(n);
-    let hash = if n.ns == 0 && matches!(doc.kind(n.node), NodeKind::Root) {
-        if doc.html {
-            0
-        } else {
-            let children: Vec<_> = doc.children(n.node).collect();
-            let first = children
-                .iter()
-                .find(|&&c| matches!(doc.kind(c), NodeKind::Element { .. }))
-                .or(children.first());
-            match first {
-                Some(&c) => match doc.kind(c) {
-                    NodeKind::Element { .. }
-                    | NodeKind::Text(_)
-                    | NodeKind::Comment(_)
-                    | NodeKind::Pi { .. } => str_hash(&doc.string_value(c)),
-                    _ => 0,
-                },
-                None => 0,
-            }
-        }
-    } else {
-        str_hash(&value)
-    };
-    (hash, value)
 }
 
 /// A node-set against a non-node-set value. `swapped`: the node-set was on
@@ -846,13 +923,18 @@ fn compare_nodes_with(
             .any(|&n| ordered(number::from_string(&env.string_value_cow(n)), *q)),
         Value::String(s) => match op {
             // xmlXPathEqualNodeSetString compares value hashes first.
+            // A node's whole value is only built when its hash matches.
             CompareOp::Eq => {
-                let key = (str_hash(s), std::borrow::Cow::Borrowed(s.as_str()));
-                nodes.iter().any(|&n| eq_key(env, n) == key)
+                let h = str_hash(s);
+                nodes
+                    .iter()
+                    .any(|&n| eq_hash(env, n) == h && env.string_value_cow(n) == s.as_str())
             }
             CompareOp::Ne => {
-                let key = (str_hash(s), std::borrow::Cow::Borrowed(s.as_str()));
-                nodes.iter().any(|&n| eq_key(env, n) != key)
+                let h = str_hash(s);
+                nodes
+                    .iter()
+                    .any(|&n| eq_hash(env, n) != h || env.string_value_cow(n) != s.as_str())
             }
             _ => {
                 let q = number::from_string(s);

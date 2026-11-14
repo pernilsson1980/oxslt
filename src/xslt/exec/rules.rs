@@ -269,9 +269,16 @@ impl<'a> Transform<'a> {
         result
     }
 
-    /// Whether `node` matches any alternative of `p`.
+    /// Whether `node` matches any alternative of `p`. Alternatives whose
+    /// last step can't match the node's kind and name are skipped without
+    /// setting up an evaluation: xsl:number tests its count and from
+    /// patterns on every preceding node, most of which can't match.
     pub(super) fn pattern_matches(&mut self, p: &Pattern, node: NodeRef) -> R<bool> {
+        let key = self.node_key(node);
         for alt in &p.alternatives {
+            if !could_match(alt, key) {
+                continue;
+            }
             if self.matches(alt, node)? {
                 return Ok(true);
             }
