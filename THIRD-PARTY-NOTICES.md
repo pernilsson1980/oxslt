@@ -4,8 +4,10 @@ oxslt is written from scratch in Rust, but much of it follows the C code of
 the libraries whose behaviour it reproduces: libxml2 2.9.14, libxslt 1.1.35
 and libexslt 0.8.20. Many functions are ports of theirs, named in comments
 (for example the HTML parser, `xsl:number` and `format-number()`, EXSLT's
-dates, XInclude, and the HTML and XHTML serializers), and
-`src/html/tables.rs` is generated from libxml2's `HTMLparser.c`. Their
+dates, XInclude, the HTML and XHTML serializers, and xsltproc's argument
+handling), `src/html/tables.rs` is generated from libxml2's `HTMLparser.c`,
+and `src/cli.rs` and `src/cli/extensions.txt` reproduce xsltproc's usage,
+version and `--dumpextensions` texts. Their
 licences ask for the notices below to be kept with such copies.
 
 ## libxml2

@@ -77,7 +77,7 @@ On Debian-based systems, `update-alternatives` can do the same system-wide. Like
 
 ## Performance
 
-On native arm64 Linux, oxslt is faster than `xsltproc` on 13 of 14 benchmark workloads and uses about half the memory on all of them; DocBook HTML pages run about 1.3 times as fast. The one slower workload is grouping without keys (`preceding-sibling` comparisons), at about 0.8 times `xsltproc`'s speed. Details and methods are in [tests/bench/RESULTS.md](tests/bench/RESULTS.md); `scripts/bench.sh` reruns the benchmarks.
+On native arm64 Linux, oxslt is faster than `xsltproc` on 13 of 14 benchmark workloads and uses about half the memory on all of them; DocBook HTML pages run about 1.3 times as fast. The one slower workload is grouping without keys (`preceding-sibling` comparisons), at about 0.8 times `xsltproc`'s speed. Very large chunked DocBook builds are slower too: in drop-in testing, GIMP's manual took about 15% longer per language than with `xsltproc`, and the Csound manual (1,751 pages from one document) about 35% longer. Details and methods are in [tests/bench/RESULTS.md](tests/bench/RESULTS.md); `scripts/bench.sh` reruns the benchmarks.
 
 ## Security
 
