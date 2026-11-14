@@ -1,6 +1,6 @@
 [package]
 name = "oxslt"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A memory-safe, drop-in replacement for the xsltproc command (XSLT 1.0)"
