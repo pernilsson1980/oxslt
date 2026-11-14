@@ -2,7 +2,7 @@
 
 oxslt (pronounced "ox-ess-ell-tee") is a memory-safe replacement for the `xsltproc` command, written in Rust, for XSLT 1.0. The goal is a drop-in binary: a build system or distribution should be able to swap it in for `xsltproc` and get the same output bytes and the same exit codes, without changing anything else.
 
-**Status: early.** oxslt is tested extensively against `xsltproc` but hasn't been used in production yet; please report any difference you find. In drop-in testing, the builds of 100 Debian packages ran oxslt beside `xsltproc` (`tests/dropin`, `scripts/dropin.sh`). All 2,493 `xsltproc` calls gave identical output, written files included. (Two of the builds fail for reasons that have nothing to do with XSLT.)
+**Status: early.** oxslt is tested extensively against `xsltproc` but hasn't been used in production yet; please report any difference you find. In drop-in testing, the builds of 185 Debian packages ran oxslt beside `xsltproc` (`tests/dropin`, `scripts/dropin.sh`). Of their 4,132 `xsltproc` calls, all but 14 gave identical output, written files included: 13 sort by `xsl:sort`'s `lang` with locales installed, which oxslt ignores, and in one (csound-manual's chunked HTML) 2 of 1,751 pages have a different "previous" link, from libxml2's document order. (Three of the builds fail for reasons that have nothing to do with XSLT.)
 
 ## What works
 
