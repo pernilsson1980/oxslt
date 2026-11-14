@@ -68,7 +68,8 @@ now() { date +%s%N; }
 
 snapshot > "$d/before-ox"
 t0=$(now)
-timeout 300 "$OX" "$@" < "$stdin" > "$d/ox-stdout" 2> "$d/ox-stderr"
+# Both run under the name the build called (usage texts print it).
+timeout 3600 bash -c 'exec -a "$0" "$@"' "$0" "$OX" "$@" < "$stdin" > "$d/ox-stdout" 2> "$d/ox-stderr"
 oxrc=$?
 t1=$(now)
 snapshot > "$d/after-ox"
@@ -83,7 +84,7 @@ while IFS= read -r f; do
 done < "$d/ox-written"
 
 t2=$(now)
-"$REAL" "$@" < "$stdin" > "$d/real-stdout" 2> "$d/real-stderr"
+( exec -a "$0" "$REAL" "$@" ) < "$stdin" > "$d/real-stdout" 2> "$d/real-stderr"
 rc=$?
 t3=$(now)
 snapshot > "$d/after-real"

@@ -21,7 +21,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 
 - Extension elements other than `exsl:document`, `xt:document` and `saxon:output`, such as `func:function`.
 - EXSLT's `dyn:map` and crypto functions, and saxon's `expression`, `eval` and `evaluate`. `function-available()` reports them as available, as `xsltproc` does, but calling one is an error.
-- `xsltproc` options other than those listed below.
+- `xsltproc`'s `--debug`.
 - EBCDIC encodings.
 - `xsl:sort`'s `lang` attribute is ignored.
 
@@ -38,23 +38,30 @@ target/release/oxslt [options] stylesheet.xsl input.xml [input.xml ...]
 
 As with `xsltproc`, `-` in place of a file name reads it from standard input.
 
-The options are `xsltproc`'s:
+The options are `xsltproc`'s, and are read as it reads them (every argument after the stylesheet is an input):
 
 | Option | |
 |---|---|
-| `-o`, `--output file` | Write to `file` instead of standard output |
+| `-o`, `--output file` | Write to `file` instead of standard output, making missing directories |
 | `--param name value` | Pass a parameter as an XPath expression |
 | `--stringparam name value` | Pass a parameter as a string |
 | `--nonet` | Accepted; oxslt never uses the network anyway |
 | `--novalid` | Don't load the external DTD or apply its default attributes |
-| `--xinclude` | Process XIncludes in the input documents |
+| `--nodtdattr` | Load the external DTD but don't apply default attributes |
+| `--encoding name` | Read the input documents in this encoding |
+| `--xinclude` | Process XIncludes in the input documents (and in `document()`'s) |
+| `--xincludestyle` | Process XIncludes in the stylesheet |
 | `--html` | Parse the input documents as HTML |
 | `--catalogs` | Use the catalogs in `SGML_CATALOG_FILES` instead of `XML_CATALOG_FILES` |
 | `--nowrite`, `--nomkdir` | Refuse to write files with `exsl:document`, or to create directories |
 | `--writesubtree path` | Allow `exsl:document` to write only below `path` |
 | `--path paths` | Directories to search for DTDs and entities |
-| `--maxdepth n` | Accepted; the template recursion limit is fixed at 3,000 |
-| `--version` | Print the version |
+| `--noout` | Don't write the result |
+| `--maxdepth n`, `--maxvars n` | libxslt's recursion limits (3,000 nested levels, 15,000 variables) |
+| `--maxparserdepth n`, `--huge` | libxml2's parser limits |
+| `--version`, `--dumpextensions` | Print what `xsltproc` prints |
+
+`--verbose`, `--timing`, `--profile`, `--load-trace`, `--repeat`, `--nodict` and `--seed-rand` are accepted and change nothing; `--debug` isn't supported.
 
 Exit codes match those documented in the `xsltproc` man page.
 
@@ -80,7 +87,7 @@ oxslt treats stylesheets and documents as untrusted input.
 - **No network access at all**, with or without `--nonet`.
 - **Files oxslt writes:** the one given with `-o`, and, as `xsltproc` does, whatever a stylesheet's `exsl:document` names, anywhere the user may write. `--nowrite`, `--nomkdir` and `--writesubtree` restrict that, as in `xsltproc`; use them for untrusted stylesheets.
 - **It reads local files as `xsltproc` does:** files named by `document()`, `xsl:include` and `xsl:import`, external DTDs, and external entities in the input. So a stylesheet or document can read any file the user can read. Don't run untrusted stylesheets on machines with confidential files, and don't hand their output to people you don't trust.
-- **Resource limits:** libxml2's parser limits (nesting depth, text and name sizes), protection against entity-expansion attacks, a template recursion limit of 3,000, and resistance to hash flooding. The library also offers a work budget and a timeout (`xslt::exec::Limits`); the command line doesn't set them, since `xsltproc` has none.
+- **Resource limits:** libxml2's parser limits (nesting depth, text and name sizes), protection against entity-expansion attacks, libxslt's recursion limits, a guard that stops a transform before it overflows its stack, and resistance to hash flooding. The library also offers a work budget and a timeout (`xslt::exec::Limits`); the command line doesn't set them, since `xsltproc` has none.
 - The XML and HTML parsers, XPath and whole transforms are fuzzed with cargo-fuzz.
 
 Please report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes.

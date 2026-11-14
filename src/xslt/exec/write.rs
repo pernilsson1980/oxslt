@@ -181,51 +181,63 @@ impl<'a> Transform<'a> {
         Ok(())
     }
 
-    /// xsltCheckWrite: 1 if `filename` may be written, 0 if refused (with a
-    /// message), negative if a directory couldn't be made. Only local files
-    /// are checked; other URLs fail when written.
+    /// xsltCheckWrite on the transform's write rules, reporting refusals.
     fn check_write(&mut self, filename: &str) -> i32 {
-        match crate::catalog::local_path(filename) {
-            Some(p) => self.check_write_path(&p.to_string_lossy()),
-            None if self.writes.files == WriteCheck::Refuse => {
-                self.report_plain(&format!("File write for {filename} refused"));
-                0
-            }
-            None => 1,
+        let mut refusals = Vec::new();
+        let ret = check_write(&self.writes, filename, &mut refusals);
+        for r in refusals {
+            self.report_plain(&r);
         }
+        ret
     }
+}
 
-    /// xsltCheckWritePath: the file check, then the directory, made (after
-    /// checking it the same way) if it's missing.
-    fn check_write_path(&mut self, path: &str) -> i32 {
-        if !self.writes.file_allowed(path) {
-            self.report_plain(&format!("File write for {path} refused"));
-            return 0;
+/// xsltCheckWrite: 1 if `filename` may be written, 0 if refused (with a
+/// message in `refusals`), negative if a directory couldn't be made.
+/// Missing directories are made, if the rules allow it. Only local files
+/// are checked; other URLs fail when written. libxslt checks the `-o` file
+/// this way too, after a transform.
+pub fn check_write(writes: &Writes, filename: &str, refusals: &mut Vec<String>) -> i32 {
+    match crate::catalog::local_path(filename) {
+        Some(p) => check_write_path(writes, &p.to_string_lossy(), refusals),
+        None if writes.files == WriteCheck::Refuse => {
+            refusals.push(format!("File write for {filename} refused"));
+            0
         }
-        // xmlParserGetDirectory: up to the last '/', else the current one.
-        let directory = match path.rfind('/') {
-            Some(0) => "/".to_string(),
-            Some(i) => path[..i].to_string(),
-            None => return 1,
-        };
-        if std::path::Path::new(&directory).exists() {
-            return 1;
-        }
-        if !self.writes.mkdir {
-            self.report_plain(&format!("Directory creation for {path} refused"));
-            return 0;
-        }
-        let mut ret = self.check_write_path(&directory);
-        if ret == 1 {
-            ret = if std::fs::create_dir(&directory).is_ok() {
-                0
-            } else {
-                -1
-            };
-        }
-        if ret < 0 {
-            return ret;
-        }
-        1
+        None => 1,
     }
+}
+
+/// xsltCheckWritePath: the file check, then the directory, made (after
+/// checking it the same way) if it's missing.
+fn check_write_path(writes: &Writes, path: &str, refusals: &mut Vec<String>) -> i32 {
+    if !writes.file_allowed(path) {
+        refusals.push(format!("File write for {path} refused"));
+        return 0;
+    }
+    // xmlParserGetDirectory: up to the last '/', else the current one.
+    let directory = match path.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => path[..i].to_string(),
+        None => return 1,
+    };
+    if std::path::Path::new(&directory).exists() {
+        return 1;
+    }
+    if !writes.mkdir {
+        refusals.push(format!("Directory creation for {path} refused"));
+        return 0;
+    }
+    let mut ret = check_write_path(writes, &directory, refusals);
+    if ret == 1 {
+        ret = if std::fs::create_dir(&directory).is_ok() {
+            0
+        } else {
+            -1
+        };
+    }
+    if ret < 0 {
+        return ret;
+    }
+    1
 }

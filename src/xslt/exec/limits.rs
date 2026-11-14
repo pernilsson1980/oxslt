@@ -4,8 +4,13 @@
 
 use super::*;
 
-/// libxslt's default `--maxdepth`: nested template calls.
+/// libxslt's default `--maxdepth`: nested sequence constructors (template
+/// bodies, `xsl:if`, `xsl:for-each`, variables and so on).
 pub const MAX_DEPTH: usize = 3_000;
+
+/// libxslt's default `--maxvars`: local variables and parameters of all
+/// calls together, checked when a template is called.
+pub const MAX_VARS: usize = 15_000;
 
 /// Limits on a transform's work and on what it may write. The default is
 /// no work limit, as in xsltproc, and no file writes, so a library caller
@@ -20,6 +25,18 @@ pub struct Limits {
     pub timeout: Option<Duration>,
     /// Which files `exsl:document` may write.
     pub writes: Writes,
+    /// Nested sequence constructors allowed (`--maxdepth`); default
+    /// [`MAX_DEPTH`].
+    pub max_depth: Option<usize>,
+    /// Local variables and parameters allowed (`--maxvars`); default
+    /// [`MAX_VARS`].
+    pub max_vars: Option<usize>,
+    /// Bytes of stack the transform may use, measured from where
+    /// `Transform::run` was called; past it the transform stops (exit 10)
+    /// instead of overflowing. None: no check. Set it below the thread's
+    /// stack size: the command line runs on a 512 MiB stack and allows
+    /// 448 MiB.
+    pub stack: Option<usize>,
 }
 
 /// A transform's remaining work and its deadline, shared with XPath

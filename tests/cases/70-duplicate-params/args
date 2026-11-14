@@ -1,0 +1,12 @@
+--stringparam
+p
+first
+--stringparam
+p
+second
+--stringparam
+q
+x
+--stringparam
+q
+y

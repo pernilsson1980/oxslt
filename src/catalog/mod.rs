@@ -545,6 +545,20 @@ impl ResourceLoader {
         system: &str,
         base: &Base,
     ) -> Option<(PathBuf, bool)> {
+        self.locate_url(public, system, base)
+            .map(|(p, by_path, _)| (p, by_path))
+    }
+
+    /// [`locate_how`](Self::locate_how), also giving the name libxml2 gives
+    /// the document: the catalog's answer as written when a catalog mapped
+    /// it (such as `file:///…`, kept as a URI by xmlCanonicPath), else the
+    /// path found.
+    pub fn locate_url(
+        &self,
+        public: Option<&str>,
+        system: &str,
+        base: &Base,
+    ) -> Option<(PathBuf, bool, String)> {
         if self.refuse_all {
             return None;
         }
@@ -567,7 +581,12 @@ impl ResourceLoader {
             resource = mapped;
         }
         if let Some(p) = local_path(&resource).filter(|p| p.exists()) {
-            return Some((p, false));
+            let name = if resource == absolute {
+                p.to_string_lossy().into_owned()
+            } else {
+                resource
+            };
+            return Some((p, false, name));
         }
         // xsltproc's --path: each directory with the URL's last segment.
         let last = absolute.rsplit('/').next().unwrap_or(&absolute);
@@ -575,7 +594,10 @@ impl ResourceLoader {
             .iter()
             .map(|d| d.join(last))
             .find(|p| p.exists())
-            .map(|p| (p, true))
+            .map(|p| {
+                let name = p.to_string_lossy().into_owned();
+                (p, true, name)
+            })
     }
 
     /// Reads a document (a stylesheet include or a `document()` target).

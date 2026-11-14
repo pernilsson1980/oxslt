@@ -408,7 +408,7 @@ impl Ctx<'_> {
             return Some(Replacement::Local { nodes, base });
         }
         // Parse it, through the catalogs, with the same options.
-        let path = self.loader.locate(None, url, &None)?;
+        let (path, _, name) = self.loader.locate_url(None, url, &None)?;
         let bytes = crate::catalog::read_file(&path).ok()?;
         let parsed = match parse_with(
             &bytes,
@@ -432,12 +432,12 @@ impl Ctx<'_> {
             self.warnings.push(format!("warning: {w}"));
         }
         let mut included = parsed.document;
-        // The document's URL is where it was found (a catalog may map it).
-        let found = path.to_string_lossy().into_owned();
+        // The document's URL is where it was found: libxml2 takes doc->URL,
+        // a catalog's answer as written if a catalog mapped it.
         let doc_url = if crate::catalog::local_path(url).as_deref() == Some(path.as_path()) {
             url.to_string()
         } else {
-            found
+            name
         };
         included.url = Some(doc_url.clone());
         let included = self.process_doc(included);

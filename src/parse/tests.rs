@@ -320,9 +320,48 @@ fn billion_laughs_hits_the_expansion_limit() {
     let input = format!("<!DOCTYPE l [{decls}]><l>&l9;</l>");
     assert_eq!(
         err(input.as_bytes()).message,
-        "Maximum entity amplification factor exceeded"
+        "Detected an entity reference loop"
     );
 }
+/// External entities, each 3 MB: their text is input read, so a document
+/// made of several (like PostgreSQL's manual) passes the 10 MB mark, but
+/// one referenced many times is refused, as libxml2 2.9 refuses it.
+#[test]
+fn external_entities_count_as_input() {
+    struct Big;
+    impl crate::dtd::Loader for Big {
+        fn load(
+            &self,
+            _: Option<&str>,
+            _: &str,
+            _: &crate::dtd::Base,
+        ) -> Result<(String, crate::dtd::Base), String> {
+            Ok(("x".repeat(3_000_000), None))
+        }
+    }
+    let parse = |refs: &str| {
+        let decls: String = (0..5)
+            .map(|i| format!("<!ENTITY e{i} SYSTEM \"e{i}.xml\">"))
+            .collect();
+        let input = format!("<!DOCTYPE d [{decls}]><d>{refs}</d>");
+        let mut names = NamePool::new();
+        parse_with(
+            input.as_bytes(),
+            &mut names,
+            &ParseOptions::default(),
+            &Big,
+            &None,
+        )
+        .map(|_| ())
+        .map_err(|e| e.message)
+    };
+    assert_eq!(parse("&e0;&e1;&e2;&e3;&e4;"), Ok(()));
+    assert_eq!(
+        parse(&"&e0;".repeat(40)),
+        Err("Detected an entity reference loop".into())
+    );
+}
+
 #[test]
 fn many_namespace_declarations_parse_and_resolve() {
     let decls: String = (0..1_000)

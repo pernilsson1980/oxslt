@@ -120,3 +120,108 @@ fn errors_that_go_on_and_errors_that_stop() {
     assert_eq!(stops.status.code(), Some(10));
     assert!(stops.stdout.is_empty());
 }
+
+/// xsltproc's argument handling, recorded from Debian's xsltproc
+/// (tests/cases can't express arguments after the stylesheet).
+mod arguments {
+    use super::*;
+
+    fn identity() -> String {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cases/01-identity");
+        std::fs::read_to_string(dir.join("expected/stdout")).unwrap()
+    }
+
+    /// `--version` prints the library versions to standard output and goes
+    /// on; with nothing else to do, exit 0.
+    #[test]
+    fn version() {
+        let (code, out) = oxslt(&["--version"]);
+        assert_eq!(code, 0);
+        assert!(out.starts_with("Using libxml 20914, libxslt 10135 and libexslt 820\n"));
+        assert_eq!(out.lines().count(), 4);
+        let (code, out) = oxslt(&["-V", "style.xsl", "in.xml"]);
+        assert_eq!(code, 0);
+        assert!(out.ends_with(&identity()));
+    }
+
+    /// Options alone, without a stylesheet, do nothing: exit 0.
+    #[test]
+    fn options_without_stylesheet() {
+        assert_eq!(oxslt(&["--nonet"]), (0, String::new()));
+        assert_eq!(oxslt(&["-o"]), (0, String::new()));
+        assert_eq!(oxslt(&["--stringparam", "p"]), (0, String::new()));
+    }
+
+    /// An unknown option prints the usage to standard output: exit 3.
+    #[test]
+    fn unknown_option() {
+        let (code, out) = oxslt(&["style.xsl", "in.xml", "--bogus"]);
+        assert_eq!(code, 3);
+        assert!(out.contains("[options] stylesheet file [file ...]"));
+        assert!(out.contains("\t--xincludestyle : do XInclude processing on stylesheets\n"));
+    }
+
+    /// Every argument after the stylesheet is an input, options included:
+    /// they're also read as options, then fail to parse as files (exit 6).
+    #[test]
+    fn options_after_the_stylesheet_are_inputs() {
+        // --noout still applies: no output.
+        let (code, out) = oxslt(&["style.xsl", "in.xml", "--noout"]);
+        assert_eq!((code, out), (6, String::new()));
+        let (code, out) = oxslt(&["style.xsl", "--stringparam", "p", "v", "in.xml"]);
+        assert_eq!((code, out), (6, identity()));
+        // "-" stops the options; it's the stylesheet here.
+        assert_eq!(oxslt(&["--noout", "-", "style.xsl"]).0, 4);
+    }
+
+    /// `--noout` writes no result, but `-o` still writes its file.
+    #[test]
+    fn noout() {
+        assert_eq!(
+            oxslt(&["--noout", "style.xsl", "in.xml"]),
+            (0, String::new())
+        );
+        let dir = std::env::temp_dir().join(format!("oxslt-noout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("out.xml");
+        let f = file.to_str().unwrap();
+        assert_eq!(
+            oxslt(&["-o", f, "--noout", "style.xsl", "in.xml"]),
+            (0, String::new())
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), identity());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A missing `--maxdepth` value is exit 2, as is a 32nd parameter
+    /// (xsltproc's MAX_PARAMETERS counts names and values: 64).
+    #[test]
+    fn exit_2() {
+        assert_eq!(oxslt(&["style.xsl", "in.xml", "--maxdepth"]).0, 2);
+        assert_eq!(oxslt(&["--maxparserdepth"]).0, 2);
+        let mut args = Vec::new();
+        for _ in 0..31 {
+            args.extend(["--stringparam", "p", "v"]);
+        }
+        args.extend(["style.xsl", "in.xml"]);
+        // 31 parameters of one name: accepted, but duplicates (exit 9).
+        assert_eq!(oxslt(&args).0, 9);
+        args.splice(0..0, ["--stringparam", "p", "v"]);
+        assert_eq!(oxslt(&args).0, 2);
+    }
+
+    /// With `--encoding`, a byte-order mark isn't skipped: it's content
+    /// before the root, even when it matches the encoding.
+    #[test]
+    fn forced_encoding_keeps_the_bom() {
+        let dir = std::env::temp_dir().join(format!("oxslt-bom-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("bom.xml");
+        std::fs::write(&file, b"\xef\xbb\xbf<doc/>").unwrap();
+        let f = file.to_str().unwrap();
+        assert_eq!(oxslt(&["style.xsl", f]).0, 0);
+        assert_eq!(oxslt(&["--encoding", "UTF-8", "style.xsl", f]).0, 6);
+        assert_eq!(oxslt(&["--encoding", "nonsense", "style.xsl", f]).0, 6);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

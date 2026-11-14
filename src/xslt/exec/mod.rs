@@ -23,7 +23,7 @@ use functions::*;
 mod strip;
 use strip::*;
 mod write;
-pub use write::{WriteCheck, Writes};
+pub use write::{WriteCheck, Writes, check_write};
 mod rules;
 use rules::*;
 mod copy;
@@ -32,7 +32,7 @@ mod copy;
 mod limits;
 mod numbering;
 use limits::*;
-pub use limits::{Limits, MAX_DEPTH};
+pub use limits::{Limits, MAX_DEPTH, MAX_VARS};
 const REGISTERED_EXTENSION_ELEMENTS: [(&str, &str); 6] = [
     ("http://exslt.org/common", "document"),
     ("http://www.jclark.com/xt", "document"),
@@ -88,11 +88,20 @@ pub struct Transform<'a> {
     computing: Vec<Name>,
     /// The error of a global computed on demand inside an evaluation.
     global_error: RefCell<Option<ExecError>>,
-    /// Command-line parameters not used yet.
-    params: SymMap<Name, Param>,
+    /// Command-line parameters' values for declared xsl:params not computed yet.
+    params: SymMap<Name, Value>,
     locals: Vec<(Name, Value)>,
     out: Vec<ResultTree>,
+    /// Nested sequence constructors (libxslt's ctxt->depth) and the limit.
     depth: usize,
+    max_depth: usize,
+    /// Local variables and parameters of the calls below the current one.
+    outer_locals: usize,
+    max_vars: usize,
+    /// Where the stack was when the transform started, and how far it may
+    /// grow (`Limits::stack`).
+    stack_base: usize,
+    stack_limit: Option<usize>,
     ids: RefCell<SymMap<NodeRef, usize>>,
     keys: RefCell<Keys>,
     /// Documents `document()` loaded or asked for.
@@ -145,6 +154,35 @@ impl std::fmt::Debug for Transform<'_> {
 }
 
 type R<T> = Result<T, ExecError>;
+
+/// The address of a local: how deep the stack is, for `Limits::stack`.
+#[inline(never)]
+fn stack_address() -> usize {
+    let marker = 0u8;
+    std::hint::black_box(std::ptr::addr_of!(marker)) as usize
+}
+
+/// The location of a body's first instruction, where it has one.
+fn first_location(body: &Body) -> Option<&Location> {
+    body.iter().find_map(|i| match i {
+        Instr::LiteralElement { location, .. }
+        | Instr::ValueOf { location, .. }
+        | Instr::ApplyTemplates { location, .. }
+        | Instr::CallTemplate { location, .. }
+        | Instr::ForEach { location, .. }
+        | Instr::If { location, .. }
+        | Instr::CopyOf { location, .. }
+        | Instr::Element { location, .. }
+        | Instr::Attribute { location, .. }
+        | Instr::ProcessingInstruction { location, .. }
+        | Instr::Number { location, .. }
+        | Instr::ApplyImports { location }
+        | Instr::Document { location, .. }
+        | Instr::Unsupported { location, .. } => Some(location),
+        Instr::Variable(v) => Some(&v.location),
+        _ => None,
+    })
+}
 
 fn where_(loc: &Location) -> String {
     format!(
@@ -199,6 +237,11 @@ impl<'a> Transform<'a> {
             out: vec![ResultTree::new(cdata.clone())],
             cdata,
             depth: 0,
+            max_depth: limits.max_depth.unwrap_or(MAX_DEPTH),
+            outer_locals: 0,
+            max_vars: limits.max_vars.unwrap_or(MAX_VARS),
+            stack_base: stack_address(),
+            stack_limit: limits.stack,
             ids: RefCell::new(SymMap::default()),
             keys: RefCell::new(Keys::default()),
             loads: RefCell::new(DocLoads::default()),
@@ -232,26 +275,49 @@ impl<'a> Transform<'a> {
             .collect();
         // Command-line parameters, as libxslt's xsltProcessUserParamInternal
         // treats them: ignored when a module declares an xsl:variable of
-        // that name; a declared xsl:param takes the value when computed;
-        // otherwise the parameter is a global of its own, evaluated now.
+        // that name; otherwise evaluated now, with the root as context, and
+        // the value of a declared xsl:param, or a global of its own. A
+        // failed evaluation stops the transform; a second parameter of a
+        // name is reported twice (before and after its evaluation) and the
+        // first stays.
+        let mut seen: Vec<Name> = Vec::new();
         for (name, param) in params {
-            if ss.global_variable_names.contains(&name) {
-                continue;
+            let duplicate = seen.contains(&name);
+            let message = format!(
+                "runtime error\nGlobal parameter {} already defined",
+                t.names.str(name.1)
+            );
+            if duplicate {
+                t.report_plain(&message);
             }
-            if t.global_defs.contains_key(&name) {
-                t.params.insert(name, param);
+            if ss.global_variable_names.contains(&name) {
                 continue;
             }
             let value = match param {
                 Param::String(s) => Value::String(s),
-                Param::Expr(e) => t.eval(&e, &focus, &Location::default()).map_err(|_| {
-                    ExecError::Runtime(format!(
-                        "Evaluating user parameter {} failed",
+                Param::Expr(e) => t.eval(&e, &focus, &Location::default()).map_err(|e| {
+                    let detail = match e {
+                        ExecError::Runtime(m) | ExecError::Terminated(m) if !m.is_empty() => {
+                            format!("{m}\n")
+                        }
+                        _ => String::new(),
+                    };
+                    ExecError::Terminated(format!(
+                        "{detail}runtime error\nEvaluating user parameter {} failed",
                         t.names.str(name.1)
                     ))
                 })?,
             };
-            t.globals.insert(name, value);
+            if duplicate {
+                t.report_plain(&message);
+                continue;
+            }
+            seen.push(name);
+            if t.global_defs.contains_key(&name) {
+                t.params.insert(name, value);
+            } else {
+                t.globals.insert(name, value);
+            }
         }
         for g in &ss.globals {
             t.compute_global(g.name)?;
@@ -389,8 +455,7 @@ impl<'a> Transform<'a> {
         let root = NodeRef::new(0, self.docs[0].root());
         let focus = Focus::single(root);
         let value = match self.params.remove(&name) {
-            Some(Param::String(s)) => Ok(Value::String(s)),
-            Some(Param::Expr(e)) => self.eval(&e, &focus, &g.location),
+            Some(v) => Ok(v),
             None => self.var_value(&g.value, &focus, &g.location),
         };
         self.locals = saved_locals;
@@ -580,9 +645,16 @@ impl<'a> Transform<'a> {
             .map_err(|e| ExecError::Runtime(format!("{e:?}")))
     }
 
-    /// The string value of `body`'s output, for attributes, comments and messages.
-    fn body_string(&mut self, body: &Body, focus: &Focus) -> R<String> {
+    /// The string value of `body`'s output, for attributes, comments and
+    /// messages. xsl:attribute takes a lone text child as it is
+    /// (`text_as_is`); the others always run it as a sequence constructor,
+    /// which counts toward the recursion limit.
+    fn body_string(&mut self, body: &Body, focus: &Focus, text_as_is: bool) -> R<String> {
         if let [Instr::Text(s)] = body.as_slice() {
+            if !text_as_is {
+                self.enter(body)?;
+                self.depth -= 1;
+            }
             return Ok(s.clone());
         }
         let doc = self.fragment(body, focus)?;
@@ -611,11 +683,20 @@ impl<'a> Transform<'a> {
         let mode = self.mode;
         match self.find_template(focus.node, mode, Some(below))? {
             Some(t) => self.call_rule(t, focus, &[]),
-            None => self.builtin(focus.node, mode, focus),
+            None => self.builtin(focus.node, mode, focus, &[]),
         }
     }
 
-    fn builtin(&mut self, node: NodeRef, mode: Option<Name>, focus: &Focus) -> R<()> {
+    /// The built-in template rules. As libxslt's xsltDefaultProcessOneNode
+    /// does (XSLT 2.0's rule, not 1.0's), the caller's parameters are passed
+    /// on to the children's templates.
+    fn builtin(
+        &mut self,
+        node: NodeRef,
+        mode: Option<Name>,
+        focus: &Focus,
+        params: &[(Name, Value)],
+    ) -> R<()> {
         if node.ns > 0 {
             return Ok(());
         }
@@ -626,7 +707,7 @@ impl<'a> Transform<'a> {
                     .children(node.node)
                     .map(|c| NodeRef::new(node.doc, c))
                     .collect();
-                self.apply(&children, mode, &[], focus)
+                self.apply(&children, mode, params, focus)
             }
             NodeKind::Text(_) | NodeKind::Attribute { .. } => {
                 let doc = &self.docs[node.doc as usize];
@@ -641,16 +722,21 @@ impl<'a> Transform<'a> {
 
     fn call(&mut self, index: usize, focus: &Focus, params: &[(Name, Value)]) -> R<()> {
         let t = &self.ss.templates[index];
-        if self.depth >= MAX_DEPTH {
+        // xsltApplyXSLTTemplate: too many variables and parameters on the
+        // stack (all calls' together) stop the transform (--maxvars).
+        if self.outer_locals + self.locals.len() >= self.max_vars {
             return Err(ExecError::Terminated(format!(
-                "{}\nxsltApplySequenceConstructor: A potential infinite template recursion was detected.\n\
-                 You can adjust xsltMaxDepth (--maxdepth) in order to raise the maximum number of nested template calls and variables/params (currently set to {MAX_DEPTH}).",
-                where_(&t.location)
+                "{}\nxsltApplyXSLTTemplate: A potential infinite template recursion was detected.\n\
+                 You can adjust maxTemplateVars (--maxvars) in order to raise the maximum number of variables/params (currently set to {}).",
+                where_(first_location(&t.body).unwrap_or(&t.location)),
+                self.max_vars
             )));
         }
-        self.depth += 1;
         let saved = std::mem::take(&mut self.locals);
+        self.outer_locals += saved.len();
         let mut result = Ok(());
+        // The parameters are bound outside the body's sequence
+        // constructor, at the caller's depth.
         for p in &t.params {
             let value = match params.iter().find(|(n, _)| *n == p.name) {
                 Some((_, v)) => v.clone(),
@@ -667,8 +753,8 @@ impl<'a> Transform<'a> {
         if result.is_ok() {
             result = self.body(&t.body, focus);
         }
+        self.outer_locals -= saved.len();
         self.locals = saved;
-        self.depth -= 1;
         result
     }
 
@@ -751,11 +837,62 @@ impl<'a> Transform<'a> {
 
     // ---------- instructions ----------
 
+    /// Runs a sequence constructor as libxslt's xsltApplySequenceConstructor
+    /// does: a non-empty one nests a level toward the recursion limit
+    /// (`--maxdepth`). Template bodies, `xsl:if`, `xsl:choose`,
+    /// `xsl:for-each`, `xsl:copy`, `xsl:element`, `exsl:document`,
+    /// variables, parameters and the content of comments, PIs and messages
+    /// each nest one; a literal result element's content doesn't, as
+    /// libxslt walks it in the same loop (`body_inline`).
     fn body(&mut self, body: &Body, focus: &Focus) -> R<()> {
+        if body.is_empty() {
+            return Ok(());
+        }
+        self.enter(body)?;
+        let result = self.body_inline(body, focus);
+        self.depth -= 1;
+        result
+    }
+
+    /// One level deeper for `body`, or libxslt's recursion error.
+    fn enter(&mut self, body: &Body) -> R<()> {
+        if self.depth >= self.max_depth {
+            // libxslt reports the sequence constructor's first node.
+            let place = first_location(body)
+                .map(|l| format!("{}\n", where_(l)))
+                .unwrap_or_default();
+            return Err(ExecError::Terminated(format!(
+                "{place}xsltApplySequenceConstructor: A potential infinite template recursion was detected.\n\
+                 You can adjust xsltMaxDepth (--maxdepth) in order to raise the maximum number of nested template calls and variables/params (currently set to {}).",
+                self.max_depth
+            )));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    /// Runs `body` without nesting a level: a literal result element's content.
+    fn body_inline(&mut self, body: &Body, focus: &Focus) -> R<()> {
+        // libxslt walks literal result elements in a loop, so they don't
+        // count toward --maxdepth; oxslt recurses, so its stack is checked.
+        if let Some(limit) = self.stack_limit
+            && self.stack_base.abs_diff(stack_address()) > limit
+        {
+            return Err(ExecError::Terminated(
+                "The transform is nested too deeply for oxslt's stack.".into(),
+            ));
+        }
         let mark = self.locals.len();
         let mut result = Ok(());
         for instr in body {
-            result = self.instr(instr, focus);
+            // Literal result elements recurse through here, so they skip
+            // the large `instr` frame: nesting costs less stack.
+            result = match instr {
+                Instr::LiteralElement { .. } => self
+                    .tick(1)
+                    .and_then(|()| self.literal_element(instr, focus)),
+                _ => self.instr(instr, focus),
+            };
             self.flush_warnings();
             if result.is_err() {
                 break;
@@ -771,6 +908,7 @@ impl<'a> Transform<'a> {
         }
     }
 
+    #[inline(never)]
     fn instr(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
         self.tick(1)?;
         match instr {
@@ -855,7 +993,7 @@ impl<'a> Transform<'a> {
             Instr::Element { .. } => self.element(instr, focus),
             Instr::Attribute { .. } => self.attribute(instr, focus),
             Instr::Comment(body) => {
-                let s = self.body_string(body, focus)?;
+                let s = self.body_string(body, focus, false)?;
                 if s.contains("--") || s.ends_with('-') {
                     // xsltComment reports it and adds the comment anyway (the
                     // result is discarded, as after any error).
@@ -868,7 +1006,7 @@ impl<'a> Transform<'a> {
             }
             Instr::ProcessingInstruction { .. } => self.processing_instruction(instr, focus),
             Instr::Message { terminate, body } => {
-                let text = self.body_string(body, focus)?;
+                let text = self.body_string(body, focus, false)?;
                 let _ = writeln!(self.messages, "{text}");
                 if *terminate {
                     return Err(ExecError::Terminated(String::new()));
@@ -890,6 +1028,7 @@ impl<'a> Transform<'a> {
         }
     }
 
+    #[inline(never)]
     fn literal_element(&mut self, instr: &Instr, focus: &Focus) -> R<()> {
         let Instr::LiteralElement {
             name,
@@ -920,7 +1059,7 @@ impl<'a> Transform<'a> {
                 .add_attribute(*q, value)
                 .map_err(Self::output_err)?;
         }
-        self.body(body, focus)?;
+        self.body_inline(body, focus)?;
         let (out, names) = self.out();
         out.end_element(names).map_err(Self::output_err)
     }
@@ -972,7 +1111,7 @@ impl<'a> Transform<'a> {
         let Some(&index) = self.ss.named.get(name) else {
             // xsltCallTemplate reports it and goes on.
             let message = format!(
-                "The called template '{}' was not found",
+                "The called template '{}' was not found.",
                 self.names.str(name.1)
             );
             self.report(location, &message);
@@ -1099,7 +1238,7 @@ impl<'a> Transform<'a> {
             );
             return Ok(());
         }
-        let value = self.body_string(body, focus)?;
+        let value = self.body_string(body, focus, true)?;
         let mut q = q;
         if let Some(uri) = q.ns {
             let (out, names) = self.out();
@@ -1129,7 +1268,7 @@ impl<'a> Transform<'a> {
             unreachable!("processing_instruction: another instruction")
         };
         let target = self.avt(name, focus, location)?;
-        let data = self.body_string(body, focus)?;
+        let data = self.body_string(body, focus, false)?;
         if data.contains("?>") {
             self.report(
                 location,

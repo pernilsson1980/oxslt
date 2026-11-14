@@ -38,7 +38,7 @@ pub mod exit {
 /// Runs oxslt with xsltproc-style arguments (without the program name) and
 /// returns the process exit code.
 pub fn run(args: &[OsString], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
-    cli::run(args, stdout, stderr, false)
+    cli::run(args, "oxslt", stdout, stderr, false)
 }
 
 /// [`run`] for a process that exits as soon as it returns, as the `oxslt`
@@ -46,5 +46,9 @@ pub fn run(args: &[OsString], stdout: &mut dyn Write, stderr: &mut dyn Write) ->
 /// operating system reclaims them faster. Freeing DocBook's compiled
 /// stylesheet took about 3% of a run.
 pub fn run_before_exit(args: &[OsString], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
-    cli::run(args, stdout, stderr, true)
+    // The usage text names the program as it was called, as xsltproc's does.
+    let program = std::env::args_os()
+        .next()
+        .map_or_else(|| "oxslt".into(), |p| p.to_string_lossy().into_owned());
+    cli::run(args, &program, stdout, stderr, true)
 }

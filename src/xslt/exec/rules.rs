@@ -248,7 +248,7 @@ impl<'a> Transform<'a> {
             let saved_mode = std::mem::replace(&mut self.mode, mode);
             let result = match self.find_template(node, mode, None)? {
                 Some(t) => self.call_rule(t, &focus, params),
-                None => self.builtin(node, mode, &focus),
+                None => self.builtin(node, mode, &focus, params),
             };
             self.mode = saved_mode;
             result?;

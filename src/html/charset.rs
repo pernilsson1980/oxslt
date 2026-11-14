@@ -85,7 +85,7 @@ fn parse_char_encoding(name: &str) -> Option<Charset> {
 }
 
 /// What xmlFindCharEncodingHandler finds for a name.
-pub(super) enum Handler {
+pub(crate) enum Handler {
     /// libxml2's own UTF-8 handler: no conversion.
     Utf8,
     /// A converter: libxml2's ISO-8859-1, ASCII and UTF-16 handlers, or
@@ -99,7 +99,7 @@ pub(super) enum Handler {
 /// ASCII letters, digits and `_-/.,:`, ignores a suffix after '/', and
 /// takes an empty name as the locale's charset: ASCII in the C locale
 /// xsltproc runs in.
-pub(super) fn find_handler(name: &str) -> Option<Handler> {
+pub(crate) fn find_handler(name: &str) -> Option<Handler> {
     if name.is_empty() {
         return None;
     }
@@ -218,6 +218,18 @@ impl<'a> Parser<'a> {
                 Some(Handler::Convert(cs)) => self.switch_to_handler(cs),
                 None => self.err(format!("htmlCheckEncoding: unknown encoding {name}")),
             },
+        }
+    }
+
+    /// An encoding given to htmlReadFile: htmlCreateFileParserCtxt checks
+    /// it as a `charset=` (htmlCheckEncodingDirect), then htmlDoRead
+    /// switches to its handler if libxml2 has one.
+    pub(super) fn force_encoding(&mut self, name: &str) {
+        self.check_encoding_direct(name.as_bytes());
+        match find_handler(name) {
+            Some(Handler::Utf8) => self.utf8 = true,
+            Some(Handler::Convert(cs)) => self.switch_to_handler(cs),
+            None => {}
         }
     }
 

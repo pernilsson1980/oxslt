@@ -39,12 +39,16 @@ pub struct ParseOptions {
     /// sets it unless `--novalid` is given; it applies to the internal
     /// subset too.
     pub dtd_attributes: bool,
-    /// Total characters entity expansion may produce, against "billion
-    /// laughs" documents.
+    /// Entity expansion past this many characters is refused when it's over
+    /// ten times the input read (external entities included), as libxml2
+    /// 2.9 refuses "billion laughs" documents.
     pub max_entity_expansion: usize,
     /// `--xinclude`: process XIncludes in inputs and in documents loaded by
     /// `document()` (`crate::xinclude`). Not done by the parser itself.
     pub xinclude: bool,
+    /// xsltproc's `--encoding`, for the input documents only (xmlReadFile
+    /// with an encoding): see `decode`.
+    pub encoding: Option<String>,
 }
 
 impl Default for ParseOptions {
@@ -58,6 +62,7 @@ impl Default for ParseOptions {
             dtd_attributes: true,
             max_entity_expansion: 10_000_000,
             xinclude: false,
+            encoding: None,
         }
     }
 }
@@ -105,7 +110,16 @@ pub fn parse_with(
     loader: &dyn Loader,
     base: &Base,
 ) -> Result<Parsed, ParseError> {
-    let decoded = decode(bytes)?;
+    let decoded = decode(bytes, options.encoding.as_deref())?;
+    // A byte-order mark left in the text (decoded as a forced encoding, or
+    // a second one) is content before the root, as libxml2 sees it.
+    if decoded.starts_with('\u{FEFF}') {
+        return Err(ParseError {
+            message: "Start tag expected, '<' not found".into(),
+            line: 1,
+            column: 1,
+        });
+    }
     let text = normalize_line_endings(&decoded);
     let mut parser = Parser {
         text: &text,
@@ -121,6 +135,8 @@ pub fn parse_with(
         seen_root: false,
         entities: Vec::new(),
         expanded: 0,
+        consumed_external: 0,
+        loaded_external: std::collections::HashSet::new(),
         warnings: Vec::new(),
         attr_text: String::new(),
         attr_spans: Vec::new(),
@@ -138,7 +154,7 @@ pub fn parse_with(
 /// Decodes an external entity or subset's bytes, as a document's: encoding
 /// from a BOM or the text declaration, line endings normalised.
 pub(crate) fn decode_entity(bytes: &[u8]) -> Result<String, ParseError> {
-    let decoded = decode(bytes)?;
+    let decoded = decode(bytes, None)?;
     Ok(normalize_line_endings(&decoded).into_owned())
 }
 
@@ -146,9 +162,34 @@ pub(crate) fn decode_entity(bytes: &[u8]) -> Result<String, ParseError> {
 
 /// Decodes the input to UTF-8, using the BOM, then the XML declaration's
 /// `encoding`, then UTF-8 as the default.
-fn decode(bytes: &[u8]) -> Result<Cow<'_, str>, ParseError> {
+///
+/// A `forced` encoding (xmlReadFile's, which xsltproc's `--encoding`
+/// gives) that libxml2 has a handler for decodes everything: the BOM isn't
+/// skipped and the declaration is ignored. An unknown one still stops the
+/// BOM and UTF-16 detection (libxml2 has set ctxt->encoding), but the
+/// declaration is used.
+fn decode<'b>(bytes: &'b [u8], forced: Option<&str>) -> Result<Cow<'b, str>, ParseError> {
     use crate::encoding::{self, Charset};
-    let (charset, skip) = if let Some((enc, bom_len)) = Encoding::for_bom(bytes) {
+    use crate::html::charset::{Handler, find_handler};
+    let forced_charset = forced.and_then(|name| match find_handler(name)? {
+        Handler::Utf8 => Some(Charset::Utf8),
+        Handler::Convert(cs) => Some(cs),
+    });
+    let (charset, skip) = if let Some(cs) = forced_charset {
+        (cs, 0)
+    } else if forced.is_some() {
+        match declared_encoding(bytes) {
+            Some(label) => (
+                encoding::lookup(&label).ok_or_else(|| ParseError {
+                    message: format!("Unsupported encoding {label}"),
+                    line: 1,
+                    column: 1,
+                })?,
+                0,
+            ),
+            None => (Charset::Utf8, 0),
+        }
+    } else if let Some((enc, bom_len)) = Encoding::for_bom(bytes) {
         let cs = if enc == encoding_rs::UTF_8 {
             Charset::Utf8
         } else {
@@ -280,6 +321,9 @@ struct Parser<'a> {
     entities: Vec<String>,
     /// Characters produced by entity expansion so far.
     expanded: usize,
+    /// Characters of external entities loaded, each counted once.
+    consumed_external: usize,
+    loaded_external: std::collections::HashSet<String>,
     warnings: Vec<String>,
     /// Scratch space for `start_element`, reused to save allocations: the
     /// attributes' names and decoded values, (name start, value start,
@@ -357,7 +401,10 @@ impl Parser<'_> {
                 if self.builder.depth() >= self.options.max_depth {
                     return Err(self.err(
                         pos,
-                        "Excessive depth in document: 256 use XML_PARSE_HUGE option",
+                        format!(
+                            "Excessive depth in document: {} use XML_PARSE_HUGE option",
+                            self.options.max_depth - 1
+                        ),
                     ));
                 }
                 self.seen_root = true;
@@ -499,7 +546,15 @@ impl Parser<'_> {
                 system,
                 base,
             }) => match self.loader.load(public.as_deref(), &system, &base) {
-                Ok((t, _)) => dtd::strip_text_decl(&t).to_string(),
+                Ok((t, _)) => {
+                    let t = dtd::strip_text_decl(&t).to_string();
+                    // An external entity's text is input read, not
+                    // amplification, the first time (libxml2's sizeentities).
+                    if self.loaded_external.insert(name.to_string()) {
+                        self.consumed_external += t.len();
+                    }
+                    t
+                }
                 Err(w) => {
                     self.warnings.push(w);
                     return Ok(());
@@ -523,9 +578,14 @@ impl Parser<'_> {
         if self.entities.iter().any(|e| e == name) || self.entities.len() >= 40 {
             return Err(self.err(pos, "Detected an entity reference loop"));
         }
+        // libxml2 2.9's xmlParserEntityCheck: entity copies past
+        // XML_MAX_TEXT_LENGTH are refused when they're over ten times the
+        // input read, external entities included.
         self.expanded += replacement.len();
-        if self.expanded > self.options.max_entity_expansion {
-            return Err(self.err(pos, "Maximum entity amplification factor exceeded"));
+        if self.expanded > self.options.max_entity_expansion
+            && self.expanded / 10 > self.text.len() + self.consumed_external
+        {
+            return Err(self.err(pos, "Detected an entity reference loop"));
         }
         if !replacement.contains(['<', '&']) {
             return self.builder.text(&replacement, line).map_err(tl);

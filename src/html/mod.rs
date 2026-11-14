@@ -23,7 +23,7 @@ mod tree;
 use tree::*;
 mod elements;
 use elements::*;
-mod charset;
+pub(crate) mod charset;
 use charset::*;
 mod input;
 use input::*;
@@ -49,7 +49,22 @@ pub struct Parsed {
 /// Parses an HTML document. Like `htmlReadFile`, it never fails: errors
 /// are warnings, and the tree is whatever the parser built.
 pub fn parse(bytes: &[u8], names: &mut NamePool, file: &str) -> Parsed {
+    parse_encoded(bytes, names, file, None)
+}
+
+/// [`parse`] with xsltproc's `--encoding`: `htmlReadFile` with an encoding.
+/// A known one is used from the start, and `<meta>` charsets are ignored;
+/// an unknown one is reported and stops `<meta>` charsets being looked for.
+pub fn parse_encoded(
+    bytes: &[u8],
+    names: &mut NamePool,
+    file: &str,
+    encoding: Option<&str>,
+) -> Parsed {
     let mut p = Parser::new(bytes, file);
+    if let Some(name) = encoding {
+        p.force_encoding(name);
+    }
     p.parse_document();
     let warnings = std::mem::take(&mut p.warnings);
     let mut document = p.tree.build(names);

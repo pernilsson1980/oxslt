@@ -6,7 +6,7 @@
 //! entities are expanded between and inside declarations, and conditional
 //! sections (`<![INCLUDE[…]]>`, `<![IGNORE[…]]>`) are honoured.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Where an entity or subset was read from, for resolving relative system IDs.
@@ -80,7 +80,8 @@ pub struct AttDef {
 pub struct Limits {
     /// Nesting of parameter-entity references and conditional sections.
     pub max_depth: usize,
-    /// Total characters produced by parameter-entity expansion.
+    /// Parameter-entity expansion past this many characters is refused when
+    /// it's over ten times what was read.
     pub max_expansion: usize,
 }
 
@@ -182,6 +183,8 @@ pub fn parse_doctype(
             loader,
             limits,
             expanded: 0,
+            consumed: close - i,
+            loaded: HashSet::new(),
         };
         p.subset(&s[i + 1..close], false, base, 0)?;
     }
@@ -206,6 +209,8 @@ pub fn load_external_subset(
                 loader,
                 limits,
                 expanded: 0,
+                consumed: text.len(),
+                loaded: HashSet::new(),
             };
             p.subset(&text, true, &ext_base, 0)
         }
@@ -266,6 +271,9 @@ struct SubsetParser<'a> {
     loader: &'a dyn Loader,
     limits: Limits,
     expanded: usize,
+    /// Characters read: the subset and each external entity once.
+    consumed: usize,
+    loaded: HashSet<String>,
 }
 
 impl SubsetParser<'_> {
@@ -293,7 +301,12 @@ impl SubsetParser<'_> {
                 system,
                 base,
             } => match self.loader.load(public.as_deref(), &system, &base) {
-                Ok(r) => r,
+                Ok(r) => {
+                    if self.loaded.insert(name.to_string()) {
+                        self.consumed += r.0.len();
+                    }
+                    r
+                }
                 Err(w) => {
                     self.dtd.warnings.push(w);
                     return Ok(None);
@@ -301,11 +314,11 @@ impl SubsetParser<'_> {
             },
             Entity::Unparsed { .. } => return Err(DtdError(format!("Unparsed entity %{name};"))),
         };
+        // As for general entities (`parse`): past the limit, refused when
+        // over ten times what was read.
         self.expanded += text.len();
-        if self.expanded > self.limits.max_expansion {
-            return Err(DtdError(
-                "Maximum entity amplification factor exceeded".into(),
-            ));
+        if self.expanded > self.limits.max_expansion && self.expanded / 10 > self.consumed {
+            return Err(DtdError("Detected an entity reference loop".into()));
         }
         Ok(Some((text, base)))
     }

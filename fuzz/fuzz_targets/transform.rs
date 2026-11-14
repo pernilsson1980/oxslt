@@ -46,6 +46,8 @@ fn transform(data: &[u8]) {
     let limits = Limits {
         max_work: Some(200_000),
         timeout: None,
+        // libFuzzer runs on the main thread's stack (8 MiB by default).
+        stack: Some(4 << 20),
         ..Limits::default()
     };
     let mut messages = Vec::new();
