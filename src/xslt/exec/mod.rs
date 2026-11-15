@@ -95,6 +95,9 @@ pub struct Transform<'a> {
     /// Nested sequence constructors (libxslt's ctxt->depth) and the limit.
     depth: usize,
     max_depth: usize,
+    /// Which of the current call's locals are parameters the caller passed
+    /// (indexes into `locals`): they may be redefined.
+    passed: Vec<usize>,
     /// Local variables and parameters of the calls below the current one.
     outer_locals: usize,
     max_vars: usize,
@@ -248,6 +251,7 @@ impl<'a> Transform<'a> {
             cdata,
             depth: 0,
             max_depth: limits.max_depth.unwrap_or(MAX_DEPTH),
+            passed: Vec::new(),
             outer_locals: 0,
             max_vars: limits.max_vars.unwrap_or(MAX_VARS),
             var_fragments: Vec::new(),
@@ -749,6 +753,7 @@ impl<'a> Transform<'a> {
             )));
         }
         let saved = std::mem::take(&mut self.locals);
+        let saved_passed = std::mem::take(&mut self.passed);
         self.outer_locals += saved.len();
         let marks = (self.var_fragments.len(), self.computed_globals.len());
         let mut result = Ok(());
@@ -756,7 +761,10 @@ impl<'a> Transform<'a> {
         // constructor, at the caller's depth.
         for p in &t.params {
             let value = match params.iter().find(|(n, _)| *n == p.name) {
-                Some((_, v)) => v.clone(),
+                Some((_, v)) => {
+                    self.passed.push(self.locals.len());
+                    v.clone()
+                }
                 None => match self.var_value(&p.value, focus, &p.location) {
                     Ok(v) => v,
                     Err(e) => {
@@ -772,6 +780,7 @@ impl<'a> Transform<'a> {
         }
         self.outer_locals -= saved.len();
         self.locals = saved;
+        self.passed = saved_passed;
         self.free_fragments(marks);
         result
     }
@@ -1004,8 +1013,12 @@ impl<'a> Transform<'a> {
                 Ok(())
             }
             Instr::Variable(v) => {
-                // A local may not redefine another local of the same template.
-                if self.locals.iter().any(|(n, _)| *n == v.name) {
+                // A local may not redefine another local of the same template
+                // (xsltRegisterVariable), unless the binding it shadows is a
+                // parameter the caller passed: libxslt keeps that as the
+                // xsl:with-param, which may be redefined (Boost's unparser).
+                let top = self.locals.iter().rposition(|(n, _)| *n == v.name);
+                if top.is_some_and(|i| !self.passed.contains(&i)) {
                     // xsltRegisterVariable reports it and doesn't add the
                     // variable: the first one stays.
                     let message = format!(
