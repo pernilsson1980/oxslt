@@ -302,3 +302,22 @@ n //para[2]/@*/following::*[1]
 n //d:list/namespace::c/parent::*
 n //d:list/namespace::c/following::*[1]
 n //d:list/namespace::*/ancestor::*
+
+# --- `=` with a path on the right, walked lazily until a match
+/root/para[2]/@n = /root/para/@n
+/root/para[1]/@n = /root/para[2]/following-sibling::*/@n
+string(/root/para[2]/@n) = /root/para/@n
+'Two' = /root/para
+'two' = /root/para
+2 = /root/nums/v
+2.5 = /root/nums/v
+/root/nums/v[3] = /root/nums/v[3]/preceding-sibling::v
+/root/nums/v[3] = /root/nums/v[1]/following-sibling::v
+count(/root/nums/v[not(. = preceding-sibling::v)])
+/root/para = /root/deep//*[@id]/@id
+'z1' = /root/deep//z/@id
+'z1' = //z[@xml:lang = 'sv']/@id
+'z1' = //z[@xml:lang = 'en']/@id
+/root/empty = /root/*[. = '']
+/root/nonexistent = /root/para
+true() = /root/para

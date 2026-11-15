@@ -256,6 +256,21 @@ pub fn evaluate(expr: &Expr, env: &Env, focus: &Focus) -> R<Value> {
             Value::Boolean(boolean(&evaluate(a, env, focus)?) && boolean(&evaluate(b, env, focus)?))
         }
         Expr::Compare(op, a, b) => {
+            // `x = path` is true at the first node of the path that matches:
+            // with a pure path, walk it lazily and stop there instead of
+            // building the node-set (`r[not(@cat = preceding-sibling::r/@cat)]`
+            // would otherwise build half the siblings for every record).
+            if *op == CompareOp::Eq
+                && let Expr::Path(path) = &**b
+                && streamable(path)
+            {
+                let a = evaluate(a, env, focus)?;
+                if let Some(found) = stream_equals(&a, path, env, focus)? {
+                    return Ok(Value::Boolean(found));
+                }
+                let b = evaluate(b, env, focus)?;
+                return Ok(Value::Boolean(compare(*op, &a, &b, env)));
+            }
             let (a, b) = (evaluate(a, env, focus)?, evaluate(b, env, focus)?);
             Value::Boolean(compare(*op, &a, &b, env))
         }
@@ -802,6 +817,136 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
         (other, NodeSet(y)) => compare_nodes_with(op, y, other, env, true),
         _ => compare_atomic(op, a, b, env),
     }
+}
+
+/// Whether `path` can be walked lazily for an existence test: it starts at
+/// the context node or the root, and its predicates are pure and don't use
+/// the position, so stopping early skips no side effect and needs no
+/// ranking.
+fn streamable(path: &Path) -> bool {
+    matches!(path.start, PathStart::Context | PathStart::Root)
+        && !path.steps.is_empty()
+        && path.steps.iter().all(|s| {
+            s.predicates
+                .iter()
+                .all(|p| is_pure(p) && is_position_independent(p))
+        })
+}
+
+/// `value = path` with `path` walked lazily (`streamable`), stopping at the
+/// first node that makes it true; the order nodes are found in doesn't
+/// matter for `=`. None when `value` isn't a kind handled here, so the
+/// caller compares as usual.
+fn stream_equals(value: &Value, path: &Path, env: &Env, focus: &Focus) -> R<Option<bool>> {
+    use std::borrow::Cow;
+    use std::collections::HashMap;
+    let start = match path.start {
+        PathStart::Root => env.at(focus.node, env.doc(focus.node).root()),
+        _ => focus.node,
+    };
+    match value {
+        Value::NodeSet(nodes) => {
+            if nodes.is_empty() {
+                return Ok(Some(false));
+            }
+            let mut by_hash: HashMap<u32, Vec<usize>> = HashMap::new();
+            for (i, &n) in nodes.iter().enumerate() {
+                by_hash.entry(eq_hash(env, n)).or_default().push(i);
+            }
+            let mut values: Vec<Option<Cow<'_, str>>> = vec![None; nodes.len()];
+            walk_path(&path.steps, start, env, &mut |m| {
+                let Some(candidates) = by_hash.get(&eq_hash(env, m)) else {
+                    return false;
+                };
+                let value = env.string_value_cow(m);
+                candidates.iter().any(|&i| {
+                    *values[i].get_or_insert_with(|| env.string_value_cow(nodes[i])) == value
+                })
+            })
+            .map(Some)
+        }
+        Value::String(s) => {
+            let h = str_hash(s);
+            walk_path(&path.steps, start, env, &mut |m| {
+                eq_hash(env, m) == h && env.string_value_cow(m) == s.as_str()
+            })
+            .map(Some)
+        }
+        Value::Number(q) => walk_path(&path.steps, start, env, &mut |m| {
+            number::from_string(&env.string_value_cow(m)) == *q
+        })
+        .map(Some),
+        Value::Boolean(_) | Value::Tree(_) => Ok(None),
+    }
+}
+
+/// Visits the nodes `steps` select from `n`, depth first and in axis order
+/// (nearest first on reverse axes), until `found` returns true. Duplicates
+/// may be visited twice. Returns whether it stopped.
+fn walk_path(
+    steps: &[Step],
+    n: NodeRef,
+    env: &Env,
+    found: &mut dyn FnMut(NodeRef) -> bool,
+) -> R<bool> {
+    let Some((step, rest)) = steps.split_first() else {
+        return Ok(found(n));
+    };
+    let mut visit = |m: NodeRef| -> R<bool> {
+        env.funcs.tick(1)?;
+        if !matches_test(&step.test, step.axis, m, env) {
+            return Ok(false);
+        }
+        let single = Focus::single(m);
+        for p in &step.predicates {
+            if !boolean(&evaluate(p, env, &single)?) {
+                return Ok(false);
+            }
+        }
+        walk_path(rest, m, env, found)
+    };
+    let doc = env.doc(n);
+    let plain = n.ns == 0 && !matches!(doc.kind(n.node), NodeKind::Attribute { .. });
+    match step.axis {
+        Axis::Child if plain => {
+            for c in doc.children(n.node) {
+                if visit(env.at(n, c))? {
+                    return Ok(true);
+                }
+            }
+        }
+        Axis::Attribute if plain => {
+            for a in doc.attributes(n.node) {
+                if visit(env.at(n, a))? {
+                    return Ok(true);
+                }
+            }
+        }
+        Axis::PrecedingSibling | Axis::FollowingSibling if plain => {
+            let next = if step.axis == Axis::FollowingSibling {
+                DocumentData::next_sibling
+            } else {
+                DocumentData::prev_sibling
+            };
+            let mut cur = next(doc, n.node);
+            while let Some(c) = cur {
+                if visit(env.at(n, c))? {
+                    return Ok(true);
+                }
+                cur = next(doc, c);
+            }
+        }
+        _ => {
+            let mut nodes = Vec::new();
+            axis_nodes(step.axis, n, env, &mut nodes);
+            for m in nodes {
+                if visit(m)? {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// `=` or `!=` between two non-empty node-sets, as libxml2's

@@ -30,10 +30,10 @@ Measured 2026-11-15 with `scripts/bench.sh`, after the large DocBook build work 
 | html-report-27MB | yes | 2589.8 ± 12.7 | 1177.7 ± 5.9 | 2.20x | 717.7 | 390.1 |
 | sort-27MB | yes | 1015.7 ± 3.7 | 628.5 ± 6.5 | 1.62x | 377.9 | 224.6 |
 | recursion-27MB | yes | 2790.9 ± 24.2 | 1966.2 ± 38.1 | 1.42x | 336.4 | 198.1 |
-| grouping-5k | yes | 566.3 ± 3.1 | 760.6 ± 41.3 | 0.74x | 14.0 | 7.5 |
+| grouping-5k | yes | 566.4 ± 2.1 | 145.7 ± 0.8 | 3.89x | 14.0 | 7.6 |
 | docbook-chunked | yes | 11444.5 ± 690.2 | 8031.7 ± 299.9 | 1.42x | 56.8 | 44.7 |
 
-**oxslt is faster on 14 of the 15 workloads and slower on one, grouping. It uses less memory on every one of them, about half on all but the DocBook build.**
+**oxslt is faster on all 15 workloads and uses less memory on every one of them, about half on all but the DocBook build.**
 
 **DocBook** (not yet a scripted workload), timed the same way with `html/docbook.xsl` and the DTD loaded through the catalog: `vipw.8` 84.2 ms for xsltproc, 65.0 ms for oxslt (1.30x); `usermod.8` 99.6 ms and 78.2 ms (1.27x); compiling alone (an empty `<article/>`) 61.7 ms and 46.5 ms (1.33x). Output identical. Compiling the stylesheet is still most of oxslt's time there.
 
@@ -51,7 +51,7 @@ Measured 2026-11-15 with `scripts/bench.sh`, after the large DocBook build work 
 | `html-report` | Templates, attribute value templates, `xsl:choose`, `format-number`, `translate`, HTML output |
 | `sort` | Two-key `xsl:sort`, numeric and text |
 | `recursion` | Recursive named templates splitting strings word by word |
-| `grouping` | Grouping without keys, `r[not(@cat = preceding-sibling::r/@cat)]`. Quadratic by design. |
+| `grouping` | Grouping without keys, `r[not(@cat = preceding-sibling::r/@cat)]`. Quadratic by design (libxml2 builds the node-set for every record; oxslt stops at the first match). |
 
 The four large ones use a 27 MB file of 200,000 records; `grouping` uses 5,000.
 
@@ -68,7 +68,7 @@ The first run showed two outliers. Both were fixed without changing any output:
 
 ## Open
 
-- **`grouping` is still 1.4× slower than libxml2.** The remaining cost is materialising `preceding-sibling::r` and its attributes, about 12.5 million nodes, for every record. Comparing while walking the axis, without building the node-set, would remove most of it.
+- **`grouping`** (fixed 2026-11-15): `@cat = preceding-sibling::r/@cat` built half the siblings and their attributes, about 12.5 million nodes, for every record. Now `x = path` with a pure path (`streamable`: predicates pure and position-independent) walks the path lazily, nearest first, and stops at the first match: 761 ms to 146 ms, 3.9 times xsltproc's speed.
 - **No PGO yet.**
 - **Variables are copied on every reference**, but that costs less than it looks: about 8% of recursion (`Vars::get`) and under 1% of a DocBook page. Making `Value`'s strings and node-sets `Rc` was tried (2026-11-09) and made things slower: recursion +7%, darktable +15%, because every computed string and node-set then needs an extra allocation, and values are created far more often than variables are read. Borrowing variables where they're function arguments or comparison operands would avoid both costs, for at most about 8% on recursion.
 - **DocBook isn't a scripted workload yet.** Its time is mostly compiling the stylesheet, and what's left there is spread thin: quick-xml tokenising and validating UTF-8, opening 55 files, allocating the IR. Each page uses only 5–7% of DocBook's 2,059 templates; compiling bodies on first use, with an up-front syntax check for xsltproc's errors, is the next step if needed.
@@ -152,7 +152,7 @@ Drop-in testing found oxslt about 15% slower than xsltproc on GIMP's manual and 
 - **`xsl:number level="any"`** walks back through every preceding node, testing the `count` and `from` patterns on each, as libxslt does; oxslt set up an XPath evaluation for every test. Patterns are now checked against the node's kind and name first (`could_match`, as template rules were), and a count is cached by instruction and node when its patterns use no variables and no functions outside XPath's core (`Pattern::is_pure`): the documents never change, and DocBook numbers each figure again for every reference to it.
 - **`=` between node-sets** built every node's whole string value to hash its first two bytes. Like libxml2's xmlXPathEqualNodeSets, oxslt now hashes only the bytes it needs and builds a value only when its hash matches.
 - **The descendant axis** walked the tree with a stack and buffered every descendant before testing them. The arena keeps document order, so a node's descendants are one range of it: the axis is now a scan of that range, tested as it goes.
-- **Result tree fragments were never freed**: the synthetic book makes a million (variables built from content), and oxslt used 610 MB where xsltproc uses 57. A template call now frees the fragments its variables made when it returns, and a freed document costs a pointer (`Document` is a handle to its data). Measured cost: about 5–7% on the 27 MB workloads, from the extra pointer.
+- **Result tree fragments were never freed**: the synthetic book makes a million (variables built from content), and oxslt used 610 MB where xsltproc uses 57. A template call now frees the fragments its variables made when it returns, and a freed document costs a pointer (`Document` is a handle to its data). The handle costs nothing measurable: natively, the 27 MB workloads take the same time as with the code before this work, and as with `Document` inline. (The container's numbers for them vary by about 5% from one session to another, which first looked like a cost.)
 
 | | xsltproc | oxslt before | oxslt after |
 |---|---:|---:|---:|

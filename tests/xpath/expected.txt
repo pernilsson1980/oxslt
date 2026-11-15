@@ -882,3 +882,37 @@ nodes: deep/9
   
 
 nodes: root/121 list/52
+[290] /root/para[2]/@n = /root/para/@n
+= true
+[291] /root/para[1]/@n = /root/para[2]/following-sibling::*/@n
+= false
+[292] string(/root/para[2]/@n) = /root/para/@n
+= true
+[293] 'Two' = /root/para
+= true
+[294] 'two' = /root/para
+= false
+[295] 2 = /root/nums/v
+= true
+[296] 2.5 = /root/nums/v
+= false
+[297] /root/nums/v[3] = /root/nums/v[3]/preceding-sibling::v
+= false
+[298] /root/nums/v[3] = /root/nums/v[1]/following-sibling::v
+= true
+[299] count(/root/nums/v[not(. = preceding-sibling::v)])
+= 5
+[300] /root/para = /root/deep//*[@id]/@id
+= false
+[301] 'z1' = /root/deep//z/@id
+= true
+[302] 'z1' = //z[@xml:lang = 'sv']/@id
+= true
+[303] 'z1' = //z[@xml:lang = 'en']/@id
+= false
+[304] /root/empty = /root/*[. = '']
+= true
+[305] /root/nonexistent = /root/para
+= false
+[306] true() = /root/para
+= true

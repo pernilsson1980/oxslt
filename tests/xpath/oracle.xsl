@@ -672,5 +672,39 @@
 <xsl:text>[289] //d:list/namespace::*/ancestor::*&#10;= </xsl:text><xsl:value-of select="string(//d:list/namespace::*/ancestor::*)"/>
 <xsl:text>&#10;nodes:</xsl:text><xsl:for-each select="//d:list/namespace::*/ancestor::*"><xsl:text> </xsl:text><xsl:value-of select="name()"/><xsl:text>/</xsl:text><xsl:value-of select="string-length(string(.))"/></xsl:for-each>
 <xsl:text>&#10;</xsl:text>
+<xsl:text>[290] /root/para[2]/@n = /root/para/@n&#10;= </xsl:text><xsl:value-of select="string(/root/para[2]/@n = /root/para/@n)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[291] /root/para[1]/@n = /root/para[2]/following-sibling::*/@n&#10;= </xsl:text><xsl:value-of select="string(/root/para[1]/@n = /root/para[2]/following-sibling::*/@n)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[292] string(/root/para[2]/@n) = /root/para/@n&#10;= </xsl:text><xsl:value-of select="string(string(/root/para[2]/@n) = /root/para/@n)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[293] 'Two' = /root/para&#10;= </xsl:text><xsl:value-of select="string('Two' = /root/para)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[294] 'two' = /root/para&#10;= </xsl:text><xsl:value-of select="string('two' = /root/para)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[295] 2 = /root/nums/v&#10;= </xsl:text><xsl:value-of select="string(2 = /root/nums/v)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[296] 2.5 = /root/nums/v&#10;= </xsl:text><xsl:value-of select="string(2.5 = /root/nums/v)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[297] /root/nums/v[3] = /root/nums/v[3]/preceding-sibling::v&#10;= </xsl:text><xsl:value-of select="string(/root/nums/v[3] = /root/nums/v[3]/preceding-sibling::v)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[298] /root/nums/v[3] = /root/nums/v[1]/following-sibling::v&#10;= </xsl:text><xsl:value-of select="string(/root/nums/v[3] = /root/nums/v[1]/following-sibling::v)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[299] count(/root/nums/v[not(. = preceding-sibling::v)])&#10;= </xsl:text><xsl:value-of select="string(count(/root/nums/v[not(. = preceding-sibling::v)]))"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[300] /root/para = /root/deep//*[@id]/@id&#10;= </xsl:text><xsl:value-of select="string(/root/para = /root/deep//*[@id]/@id)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[301] 'z1' = /root/deep//z/@id&#10;= </xsl:text><xsl:value-of select="string('z1' = /root/deep//z/@id)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[302] 'z1' = //z[@xml:lang = 'sv']/@id&#10;= </xsl:text><xsl:value-of select="string('z1' = //z[@xml:lang = 'sv']/@id)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[303] 'z1' = //z[@xml:lang = 'en']/@id&#10;= </xsl:text><xsl:value-of select="string('z1' = //z[@xml:lang = 'en']/@id)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[304] /root/empty = /root/*[. = '']&#10;= </xsl:text><xsl:value-of select="string(/root/empty = /root/*[. = ''])"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[305] /root/nonexistent = /root/para&#10;= </xsl:text><xsl:value-of select="string(/root/nonexistent = /root/para)"/>
+<xsl:text>&#10;</xsl:text>
+<xsl:text>[306] true() = /root/para&#10;= </xsl:text><xsl:value-of select="string(true() = /root/para)"/>
+<xsl:text>&#10;</xsl:text>
 </xsl:template>
 </xsl:stylesheet>
