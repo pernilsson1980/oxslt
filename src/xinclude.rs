@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 use crate::catalog::ResourceLoader;
 use crate::parse::{ParseOptions, parse_with};
-use crate::tree::{Builder, Document, NamePool, NodeId, NodeKind, QName, Sym};
+use crate::tree::{Builder, Document, NamePool, NodeId, NodeKind, NsDecl, QName, Sym};
 use crate::xpath::{self, Empty, Env, Focus, NodeRef, Value};
 
 pub const NS: &str = "http://www.w3.org/2001/XInclude";
@@ -728,6 +728,100 @@ fn ids_by_element(doc: &Document) -> Ids {
         ids.entry(el).or_default().push(value.to_string());
     }
     ids
+}
+
+/// A new document holding a copy of element `n` and its subtree, as
+/// libxslt makes an embedded stylesheet's document (xsltLoadStylesheetPI).
+/// Its declarations are its own; then those the names in the subtree need
+/// that aren't declared inside it (xmlDocCopyNode declares them on the
+/// copy, in document order), but not ones only XPath expressions use; then,
+/// for each ancestor in a namespace, the declaration of its prefix and those
+/// after it on the same element (libxslt walks the ancestor's `ns` list).
+pub(crate) fn extract_element(doc: &Document, n: NodeId) -> Document {
+    let ids = ids_by_element(doc);
+    let mut b = Builder::new();
+    let NodeKind::Element { name, .. } = doc.kind(n) else {
+        return b.finish();
+    };
+    // The nearest declaration of `prefix` at `el` or above: (element, index).
+    let declaration = |el: NodeId, prefix: Option<Sym>| -> Option<(NodeId, usize)> {
+        let mut cur = Some(el);
+        while let Some(e) = cur {
+            if let Some(k) = doc.ns_decls(e).iter().position(|d| d.prefix == prefix) {
+                return Some((e, k));
+            }
+            cur = doc.parent(e);
+        }
+        None
+    };
+    let mut root: Vec<NsDecl> = doc.ns_decls(n).to_vec();
+    let declared_inside = |el: NodeId, prefix: Option<Sym>, root: &[NsDecl]| {
+        let mut cur = Some(el);
+        while let Some(e) = cur {
+            if e == n {
+                return root.iter().any(|d| d.prefix == prefix);
+            }
+            if doc.ns_decls(e).iter().any(|d| d.prefix == prefix) {
+                return true;
+            }
+            cur = doc.parent(e);
+        }
+        false
+    };
+    let need = |el: NodeId, q: QName, root: &mut Vec<NsDecl>| {
+        if q.ns.is_none() || declared_inside(el, q.prefix, root) {
+            return;
+        }
+        if let Some((e, k)) = declaration(el, q.prefix) {
+            root.push(doc.ns_decls(e)[k]);
+        }
+    };
+    let end = doc.subtree_end(n);
+    for id in doc
+        .all_nodes()
+        .skip(n.index())
+        .take(end.index() - n.index())
+    {
+        match doc.kind(id) {
+            NodeKind::Element { name, .. } => need(id, name, &mut root),
+            NodeKind::Attribute { name, .. } if name.prefix.is_some() => {
+                need(doc.parent(id).unwrap_or(n), name, &mut root)
+            }
+            _ => {}
+        }
+    }
+    let mut cur = doc.parent(n);
+    while let Some(a) = cur {
+        if let NodeKind::Element { name: an, .. } = doc.kind(a)
+            && an.ns.is_some()
+            && let Some((e, k)) = declaration(a, an.prefix)
+        {
+            for d in &doc.ns_decls(e)[k..] {
+                if d.prefix != Some(NamePool::XML) && !root.iter().any(|r| r.prefix == d.prefix) {
+                    root.push(*d);
+                }
+            }
+        }
+        cur = doc.parent(a);
+    }
+    let _ = b.start_element(name, doc.line(n));
+    for d in root {
+        b.add_ns_decl(d);
+    }
+    for a in doc.attributes(n) {
+        if let Some(q) = doc.name(a) {
+            let _ = b.add_attribute(q, doc.value(a).unwrap_or(""));
+        }
+    }
+    for value in ids.get(&n).into_iter().flatten() {
+        b.add_id(value);
+    }
+    let kids: Vec<NodeId> = doc.children(n).collect();
+    for c in kids {
+        copy_subtree(doc, c, &mut b, &ids);
+    }
+    b.end_element();
+    b.finish()
 }
 
 /// How many elements a replacement has at its top level.

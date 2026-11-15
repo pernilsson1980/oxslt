@@ -388,7 +388,23 @@ impl Compiler<'_> {
                 return Err(self.error(d, el, format!("Failed to compile pattern '{text}'")));
             }
         }
-        self.xpath(d, el, text)
+        let compiled = self.xpath(d, el, text)?;
+        // libxslt's pattern compiler rejects an unbound prefix at once; in
+        // expressions it's an error only when evaluated.
+        let mut unbound = None;
+        visit_steps(&compiled, &mut |test| {
+            if unbound.is_none() {
+                unbound = xpath::unbound_prefix(test, self.names).map(str::to_string);
+            }
+        });
+        if let Some(p) = unbound {
+            return Err(self.error(
+                d,
+                el,
+                format!("XPath error: Undefined namespace prefix {p} in '{text}'"),
+            ));
+        }
+        Ok(compiled)
     }
 
     fn xpath(&mut self, d: &Doc, el: NodeId, expr: &str) -> R<Expr> {
@@ -599,5 +615,44 @@ fn in_scope_into(doc: &Document, el: NodeId, out: &mut Vec<Binding>) {
             }
         }
         cur = doc.parent(e);
+    }
+}
+
+/// Calls `f` on the node test of every step in `e`, predicates included.
+fn visit_steps(e: &Expr, f: &mut dyn FnMut(&xpath::ast::NodeTest)) {
+    use xpath::ast::PathStart;
+    match e {
+        Expr::Path(p) => {
+            if let PathStart::Expr(s) = &p.start {
+                visit_steps(s, f);
+            }
+            for s in &p.steps {
+                f(&s.test);
+                for pred in &s.predicates {
+                    visit_steps(pred, f);
+                }
+            }
+        }
+        Expr::Or(a, b)
+        | Expr::And(a, b)
+        | Expr::Compare(_, a, b)
+        | Expr::Arith(_, a, b)
+        | Expr::Union(a, b) => {
+            visit_steps(a, f);
+            visit_steps(b, f);
+        }
+        Expr::Negate(a) => visit_steps(a, f),
+        Expr::Filter(a, preds) => {
+            visit_steps(a, f);
+            for pred in preds {
+                visit_steps(pred, f);
+            }
+        }
+        Expr::Call(_, args) => {
+            for a in args {
+                visit_steps(a, f);
+            }
+        }
+        Expr::Literal(_) | Expr::Number(_) | Expr::Variable(_) => {}
     }
 }

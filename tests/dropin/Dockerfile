@@ -58,6 +58,20 @@ RUN apt-get update && cd /dropin/src \
     done \
  && rm -rf /var/lib/apt/lists/*
 
+# The fourth batch, likewise.
+COPY packages-4.txt /dropin/packages-4.txt
+RUN apt-get update \
+ && for p in $(grep -v '^#' /dropin/packages-4.txt); do \
+      DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
+        || echo "$p" >> /dropin/build-dep-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && cd /dropin/src \
+ && for p in $(grep -v '^#' /dropin/packages-4.txt); do \
+      apt-get source --download-only "$p" || echo "$p" >> /dropin/source-failed; \
+    done \
+ && rm -rf /var/lib/apt/lists/*
+
 # The wrapper takes xsltproc's place; oxslt is mounted at /opt/oxslt.
 RUN dpkg-divert --add --rename --divert /usr/bin/xsltproc.real /usr/bin/xsltproc \
  && mkdir -p /opt/oxslt

@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<!-- libxml2 asks the catalogs only when the system identifier is not an
+     existing file: local.dtd is loaded, not what the public id maps to. -->
+<!DOCTYPE doc PUBLIC "-//OXSLT//DTD Test//EN" "local.dtd">
+<doc/>

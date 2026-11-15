@@ -496,6 +496,59 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
     } else {
         style_doc
     };
+    // An <?xml-stylesheet?> before the root names the stylesheet that
+    // transforms this document (xsltLoadStylesheetPI); xsltproc then
+    // ignores any other arguments. If it can't be loaded, the document is
+    // compiled as the stylesheet after all.
+    if let Some(href) = stylesheet_pi(&style_doc, &names)
+        && let Some((ss_doc, ss_loc)) = load_pi_stylesheet(
+            &href, &style_doc, &style_loc, &mut names, &loader, &options, err,
+        )
+    {
+        let mut warnings = Vec::new();
+        let compiled = compile_with(
+            &ss_doc,
+            &ss_loc,
+            &mut names,
+            &loader,
+            &options,
+            &mut warnings,
+        );
+        for w in &warnings {
+            let _ = writeln!(err, "warning: {w}");
+        }
+        let stylesheet = match compiled {
+            Ok(s) => s,
+            Err(StylesheetError::Parse(m)) => {
+                let _ = writeln!(err, "cannot parse {}: {m}", display(&ss_loc));
+                return exit::STYLESHEET_PARSE_FAILED;
+            }
+            Err(StylesheetError::Compile(errors)) => {
+                for e in errors {
+                    let _ = writeln!(err, "{e}");
+                }
+                return exit::STYLESHEET_ERROR;
+            }
+        };
+        let code = transform_one(
+            o,
+            &stylesheet,
+            &mut names,
+            &loader,
+            &options,
+            style_doc,
+            &style_loc,
+            style_path,
+            out,
+            err,
+        )
+        .unwrap_or(exit::SUCCESS);
+        if exiting {
+            std::mem::forget(stylesheet);
+            std::mem::forget(names);
+        }
+        return code;
+    }
     let mut include_warnings = Vec::new();
     let compiled = compile_with(
         &style_doc,
@@ -576,115 +629,19 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
                 continue;
             }
         };
-        // An invalid --param expression fails this input's transform as a
-        // failed evaluation does: the transform stops (exit 10).
-        let params = match global_params(o, &mut names, err) {
-            Ok(p) => p,
-            Err(()) => {
-                let _ = writeln!(err, "no result for {}", display(input));
-                code = if o.output.is_some() {
-                    exit::OUTPUT_WRITE_FAILED
-                } else {
-                    exit::TERMINATED_BY_MESSAGE
-                };
-                continue;
-            }
-        };
-        let mut source = source;
-        source.url = Some(input_loc.to_string_lossy().into_owned());
-        // xsltproc processes XIncludes before transforming; any XInclude
-        // error skips the input with exit 6, and no message of its own.
-        if o.xinclude {
-            let processed = crate::xinclude::process(source, &mut names, &loader, &options);
-            for m in processed.warnings.iter().chain(&processed.errors) {
-                let _ = writeln!(err, "{m}");
-            }
-            if !processed.errors.is_empty() {
-                code = exit::DOCUMENT_ERROR;
-                continue;
-            }
-            source = processed.document;
-        }
-        match Transform::run(
+        if let Some(c) = transform_one(
+            o,
             &stylesheet,
             &mut names,
             &loader,
             &options,
             source,
-            params,
-            crate::xslt::exec::Limits {
-                writes: crate::xslt::exec::Writes {
-                    output_file: o.output.as_ref().map(|p| p.to_string_lossy().into_owned()),
-                    ..o.writes.clone()
-                },
-                max_depth: o.max_depth,
-                max_vars: o.max_vars,
-                stack: Some(TRANSFORM_STACK / 8 * 7),
-                ..Default::default()
-            },
+            &input_loc,
+            input,
+            out,
             err,
         ) {
-            Ok(result) => {
-                let bytes = crate::serialize::serialize(result, &mut names, &stylesheet.output);
-                match &o.output {
-                    // libxslt checks the file as it checks exsl:document's
-                    // (xsltCheckWrite, making missing directories); a refusal
-                    // is an error (exit 9) but the result is saved anyway.
-                    // Each input's result replaces the file. An empty result
-                    // writes nothing, not even an empty file:
-                    // xsltSaveResultToFilename returns before opening it.
-                    Some(path) => {
-                        let mut refusals = Vec::new();
-                        let checked = crate::xslt::exec::check_write(
-                            &o.writes,
-                            &path.to_string_lossy(),
-                            &mut refusals,
-                        );
-                        for r in &refusals {
-                            let _ = writeln!(err, "runtime error\n{r}");
-                        }
-                        if checked == 0 {
-                            let _ = writeln!(
-                                err,
-                                "runtime error\nxsltApplyStylesheet: forbidden to save to {}",
-                                display(path)
-                            );
-                            code = exit::INTERNAL_ERROR;
-                        } else if checked < 0 {
-                            let _ = writeln!(
-                                err,
-                                "runtime error\nxsltApplyStylesheet: saving to {} may not be possible",
-                                display(path)
-                            );
-                            code = exit::INTERNAL_ERROR;
-                        }
-                        if !bytes.is_empty()
-                            && let Err(e) = std::fs::write(path, &bytes)
-                        {
-                            let _ = writeln!(err, "failed to write the result: {e}");
-                            code = exit::OUTPUT_WRITE_FAILED;
-                        }
-                    }
-                    None if o.noout => {}
-                    None => out.extend(bytes),
-                }
-            }
-            Err(e) => {
-                let (msg, mut c) = match e {
-                    ExecError::Runtime(m) => (m, exit::INTERNAL_ERROR),
-                    ExecError::Terminated(m) => (m, exit::TERMINATED_BY_MESSAGE),
-                };
-                // With -o, xsltproc has no result to write, and saving it
-                // fails first: exit 11.
-                if o.output.is_some() {
-                    c = exit::OUTPUT_WRITE_FAILED;
-                }
-                if !msg.is_empty() {
-                    let _ = writeln!(err, "{msg}");
-                }
-                let _ = writeln!(err, "no result for {}", display(input));
-                code = c;
-            }
+            code = c;
         }
     }
     if exiting {
@@ -693,6 +650,273 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
         std::mem::forget(names);
     }
     code
+}
+
+/// Transforms one parsed input and writes or collects its result, as
+/// xsltproc's xsltProcess does. Returns the exit code to keep, if any.
+#[allow(clippy::too_many_arguments)]
+fn transform_one(
+    o: &Options,
+    stylesheet: &crate::xslt::ir::Stylesheet,
+    names: &mut NamePool,
+    loader: &ResourceLoader,
+    options: &ParseOptions,
+    source: crate::tree::Document,
+    input_loc: &Path,
+    input: &Path,
+    out: &mut Vec<u8>,
+    err: &mut Vec<u8>,
+) -> Option<i32> {
+    let mut code = None;
+    // An invalid --param expression fails this input's transform as a
+    // failed evaluation does: the transform stops (exit 10).
+    let params = match global_params(o, names, err) {
+        Ok(p) => p,
+        Err(()) => {
+            let _ = writeln!(err, "no result for {}", display(input));
+            return Some(if o.output.is_some() {
+                exit::OUTPUT_WRITE_FAILED
+            } else {
+                exit::TERMINATED_BY_MESSAGE
+            });
+        }
+    };
+    let mut source = source;
+    source.url = Some(input_loc.to_string_lossy().into_owned());
+    // xsltproc processes XIncludes before transforming; any XInclude
+    // error skips the input with exit 6, and no message of its own.
+    if o.xinclude {
+        let processed = crate::xinclude::process(source, names, loader, options);
+        for m in processed.warnings.iter().chain(&processed.errors) {
+            let _ = writeln!(err, "{m}");
+        }
+        if !processed.errors.is_empty() {
+            return Some(exit::DOCUMENT_ERROR);
+        }
+        source = processed.document;
+    }
+    match Transform::run(
+        stylesheet,
+        names,
+        loader,
+        options,
+        source,
+        params,
+        crate::xslt::exec::Limits {
+            writes: crate::xslt::exec::Writes {
+                output_file: o.output.as_ref().map(|p| p.to_string_lossy().into_owned()),
+                ..o.writes.clone()
+            },
+            max_depth: o.max_depth,
+            max_vars: o.max_vars,
+            stack: Some(TRANSFORM_STACK / 8 * 7),
+            ..Default::default()
+        },
+        err,
+    ) {
+        Ok(result) => {
+            let bytes = crate::serialize::serialize(result, names, &stylesheet.output);
+            match &o.output {
+                // libxslt checks the file as it checks exsl:document's
+                // (xsltCheckWrite, making missing directories); a refusal
+                // is an error (exit 9) but the result is saved anyway.
+                // Each input's result replaces the file. An empty result
+                // writes nothing, not even an empty file:
+                // xsltSaveResultToFilename returns before opening it.
+                Some(path) => {
+                    let mut refusals = Vec::new();
+                    let checked = crate::xslt::exec::check_write(
+                        &o.writes,
+                        &path.to_string_lossy(),
+                        &mut refusals,
+                    );
+                    for r in &refusals {
+                        let _ = writeln!(err, "runtime error\n{r}");
+                    }
+                    if checked == 0 {
+                        let _ = writeln!(
+                            err,
+                            "runtime error\nxsltApplyStylesheet: forbidden to save to {}",
+                            display(path)
+                        );
+                        code = Some(exit::INTERNAL_ERROR);
+                    } else if checked < 0 {
+                        let _ = writeln!(
+                            err,
+                            "runtime error\nxsltApplyStylesheet: saving to {} may not be possible",
+                            display(path)
+                        );
+                        code = Some(exit::INTERNAL_ERROR);
+                    }
+                    // With a declared html method and a DOCTYPE, libxslt
+                    // makes the result with that DOCTYPE in it
+                    // (htmlNewDocNoDtD), so it's never empty: the file is
+                    // made even when nothing else is written (mplayer's
+                    // chunked builds leave an empty -o file).
+                    let html_doctype = stylesheet.output.method == crate::xslt::ir::Method::Html
+                        && (stylesheet.output.doctype_public.is_some()
+                            || stylesheet.output.doctype_system.is_some());
+                    if (!bytes.is_empty() || html_doctype)
+                        && let Err(e) = std::fs::write(path, &bytes)
+                    {
+                        let _ = writeln!(err, "failed to write the result: {e}");
+                        code = Some(exit::OUTPUT_WRITE_FAILED);
+                    }
+                }
+                None if o.noout => {}
+                None => out.extend(bytes),
+            }
+        }
+        Err(e) => {
+            let (msg, mut c) = match e {
+                ExecError::Runtime(m) => (m, exit::INTERNAL_ERROR),
+                ExecError::Terminated(m) => (m, exit::TERMINATED_BY_MESSAGE),
+            };
+            // With -o, xsltproc has no result to write, and saving it
+            // fails first: exit 11.
+            if o.output.is_some() {
+                c = exit::OUTPUT_WRITE_FAILED;
+            }
+            if !msg.is_empty() {
+                let _ = writeln!(err, "{msg}");
+            }
+            let _ = writeln!(err, "no result for {}", display(input));
+            code = Some(c);
+        }
+    }
+    code
+}
+
+/// The `href` of an `<?xml-stylesheet?>` before the document element whose
+/// type is text/xml or text/xsl, as xsltLoadStylesheetPI finds it.
+fn stylesheet_pi(doc: &crate::tree::Document, names: &NamePool) -> Option<String> {
+    use crate::tree::NodeKind;
+    for c in doc.children(doc.root()) {
+        match doc.kind(c) {
+            NodeKind::Element { .. } => return None,
+            NodeKind::Pi { target, .. } if names.str(target) == "xml-stylesheet" => {
+                if let Some(href) = parse_stylesheet_pi(doc.value(c).unwrap_or("")) {
+                    return Some(href);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// xsltParseStylesheetPI: the pseudo-attributes `type` and `href`, read as
+/// libxslt reads them (the first href; a type other than text/xml or
+/// text/xsl, compared without case, ends the search with no href).
+fn parse_stylesheet_pi(value: &str) -> Option<String> {
+    let b = value.as_bytes();
+    let blank = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r');
+    let mut i = 0;
+    let mut href = None;
+    let mut is_xml = false;
+    // A quoted value after `name` and `=`: (value, end), or where to go on.
+    let quoted = |mut i: usize| -> Result<(String, usize), usize> {
+        while i < b.len() && blank(b[i]) {
+            i += 1;
+        }
+        if b.get(i) != Some(&b'=') {
+            return Err(i);
+        }
+        i += 1;
+        let q = match b.get(i) {
+            Some(&q) if q == b'"' || q == b'\'' => q,
+            _ => return Err(i),
+        };
+        let start = i + 1;
+        match b[start..].iter().position(|&c| c == q) {
+            Some(n) => Ok((value[start..start + n].to_string(), start + n + 1)),
+            None => Err(b.len()),
+        }
+    };
+    while i < b.len() {
+        while i < b.len() && blank(b[i]) {
+            i += 1;
+        }
+        if b[i..].starts_with(b"type") {
+            match quoted(i + 4) {
+                Ok((v, end)) => {
+                    i = end;
+                    if !v.eq_ignore_ascii_case("text/xml") && !v.eq_ignore_ascii_case("text/xsl") {
+                        break;
+                    }
+                    is_xml = true;
+                }
+                Err(at) => i = at,
+            }
+        } else if b[i..].starts_with(b"href") {
+            match quoted(i + 4) {
+                Ok((v, end)) => {
+                    i = end;
+                    href.get_or_insert(v);
+                }
+                Err(at) => i = at,
+            }
+        } else {
+            while i < b.len() && !blank(b[i]) {
+                i += 1;
+            }
+        }
+    }
+    href.filter(|_| is_xml)
+}
+
+/// The stylesheet an `<?xml-stylesheet?>` names: an element of the document
+/// itself for `#id`, copied into a document of its own with its ancestors'
+/// namespaces, or a file resolved against the document. None (reported)
+/// when it can't be found or parsed.
+fn load_pi_stylesheet(
+    href: &str,
+    doc: &crate::tree::Document,
+    doc_loc: &Path,
+    names: &mut NamePool,
+    loader: &ResourceLoader,
+    options: &ParseOptions,
+    err: &mut Vec<u8>,
+) -> Option<(crate::tree::Document, PathBuf)> {
+    if let Some(fragment) = href.strip_prefix('#') {
+        let id = fragment.strip_prefix('#').unwrap_or(fragment);
+        let Some(el) = doc.element_by_id(id) else {
+            let _ = writeln!(err, "xml-stylesheet : no ID {fragment} found");
+            return None;
+        };
+        return Some((
+            crate::xinclude::extract_element(doc, el),
+            doc_loc.to_path_buf(),
+        ));
+    }
+    let base = Some(doc_loc.to_path_buf());
+    let (bytes, path) = match loader.read_document(href, &base) {
+        Ok(r) => r,
+        Err(_) => {
+            let url = crate::uri::build(href, Some(&doc_loc.to_string_lossy()));
+            let _ = writeln!(err, "xsltParseStylesheetFile : cannot parse {url}");
+            return None;
+        }
+    };
+    match parse_with(&bytes, names, options, loader, &Some(path.clone())) {
+        Ok(p) => {
+            for w in &p.warnings {
+                let _ = writeln!(err, "warning: {w}");
+            }
+            Some((p.document, path))
+        }
+        Err(e) => {
+            let _ = writeln!(
+                err,
+                "{}:{}: parser error : {}\nxsltParseStylesheetFile : cannot parse {}",
+                display(&path),
+                e.line,
+                e.message,
+                display(&path)
+            );
+            None
+        }
+    }
 }
 
 /// Opens a stylesheet or input named on the command line as xsltproc does,

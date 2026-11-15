@@ -1,0 +1,5 @@
+# Fourth batch, in an image of its own: their build dependencies conflict with
+# the main image's.
+php-solr
+glasscoder
+gnubg

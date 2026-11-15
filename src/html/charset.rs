@@ -129,7 +129,9 @@ pub(crate) fn find_handler(name: &str) -> Option<Handler> {
     if code.is_empty() {
         return Some(Handler::Convert(Charset::Ascii));
     }
-    encoding::lookup(code).map(Handler::Convert)
+    encoding::lookup(code)
+        .or_else(|| encoding::libxml2_alias(name).and_then(encoding::lookup))
+        .map(Handler::Convert)
 }
 
 impl<'a> Parser<'a> {

@@ -23,6 +23,18 @@ pub enum Charset {
     Other(&'static encoding_rs::Encoding),
 }
 
+/// libxml2's last resort for an encoding name iconv doesn't know
+/// (xmlFindCharEncodingHandler's fallback through xmlParseCharEncoding):
+/// a few spellings it maps to a canonical name, such as "ISO-Latin-1",
+/// which Boost's documentation declares.
+pub fn libxml2_alias(label: &str) -> Option<&'static str> {
+    Some(match label.to_ascii_uppercase().as_str() {
+        "ISO-LATIN-1" | "ISO LATIN 1" => "ISO-8859-1",
+        "ISO-LATIN-2" | "ISO LATIN 2" => "ISO-8859-2",
+        _ => return None,
+    })
+}
+
 /// Resolves an encoding name, or None if it's unknown.
 pub fn lookup(label: &str) -> Option<Charset> {
     let l = label.trim().to_ascii_lowercase();

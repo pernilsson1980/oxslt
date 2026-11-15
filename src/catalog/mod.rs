@@ -571,6 +571,14 @@ impl ResourceLoader {
                 .into_owned(),
             _ => system.to_string(),
         };
+        // libxml2 asks the catalogs only when the system identifier isn't
+        // an existing file (xmlResolveResourceFromCatalog's
+        // xmlNoNetExists): a DOCTYPE naming a local file loads that file,
+        // whatever its public identifier maps to.
+        if let Some(p) = local_path(&absolute).filter(|p| p.exists()) {
+            let name = p.to_string_lossy().into_owned();
+            return Some((p, false, name));
+        }
         let mut resource = self
             .catalog
             .resolve_external(public, Some(&absolute))

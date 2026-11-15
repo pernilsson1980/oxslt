@@ -41,21 +41,24 @@ fn syntax_errors() {
         let e = compile_err(bad);
         assert_eq!(e.kind, ErrorKind::Syntax, "{bad:?}: {e}");
     }
+    // An unbound prefix, in a name test too, is only an error when the step
+    // is evaluated, as in libxml2 without XML_XPATH_CHECKNS (libxslt's
+    // patterns check it when compiled).
     assert!(
-        compile_err("p:x")
+        eval_err("p:x")
             .message
-            .contains("Undefined namespace prefix p")
+            .contains("Undefined namespace prefix")
     );
     assert!(
-        compile_err("p:*")
+        eval_err("/d/p:*")
             .message
-            .contains("Undefined namespace prefix p")
+            .contains("Undefined namespace prefix")
     );
-    assert!(
-        compile_err("$p:v")
-            .message
-            .contains("Undefined namespace prefix p")
-    );
+    // A variable's or function's prefix is only checked when it's
+    // evaluated, as libxml2 does.
+    let mut names = NamePool::new();
+    assert!(crate::xpath::compile("$p:v", &mut names, &|_| None).is_ok());
+    assert!(crate::xpath::compile("p:f(1)", &mut names, &|_| None).is_ok());
 }
 
 #[test]

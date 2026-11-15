@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+  <public publicId="-//OXSLT//DTD Test//EN" uri="mapped.dtd"/>
+  <system systemId="missing.dtd" uri="mapped.dtd"/>
+</catalog>

@@ -180,11 +180,13 @@ fn decode<'b>(bytes: &'b [u8], forced: Option<&str>) -> Result<Cow<'b, str>, Par
     } else if forced.is_some() {
         match declared_encoding(bytes) {
             Some(label) => (
-                encoding::lookup(&label).ok_or_else(|| ParseError {
-                    message: format!("Unsupported encoding {label}"),
-                    line: 1,
-                    column: 1,
-                })?,
+                encoding::lookup(&label)
+                    .or_else(|| encoding::libxml2_alias(&label).and_then(encoding::lookup))
+                    .ok_or_else(|| ParseError {
+                        message: format!("Unsupported encoding {label}"),
+                        line: 1,
+                        column: 1,
+                    })?,
                 0,
             ),
             None => (Charset::Utf8, 0),
@@ -203,11 +205,13 @@ fn decode<'b>(bytes: &'b [u8], forced: Option<&str>) -> Result<Cow<'b, str>, Par
     } else if let Some(label) = declared_encoding(bytes) {
         // ISO-8859-1 and US-ASCII are taken literally, as libxml2 does, not
         // as windows-1252 the way the WHATWG labels say.
-        let cs = encoding::lookup(&label).ok_or_else(|| ParseError {
-            message: format!("Unsupported encoding {label}"),
-            line: 1,
-            column: 1,
-        })?;
+        let cs = encoding::lookup(&label)
+            .or_else(|| encoding::libxml2_alias(&label).and_then(encoding::lookup))
+            .ok_or_else(|| ParseError {
+                message: format!("Unsupported encoding {label}"),
+                line: 1,
+                column: 1,
+            })?;
         (cs, 0)
     } else {
         (Charset::Utf8, 0)

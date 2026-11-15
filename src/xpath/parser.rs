@@ -29,6 +29,9 @@ pub const MAX_NESTING: usize = 100;
 /// namespaces. `None` means the prefix isn't declared.
 pub type PrefixResolver<'a> = &'a dyn Fn(&str) -> Option<Sym>;
 
+/// How an unbound prefix's placeholder namespace starts (`Parser::unbound`).
+pub(crate) const UNBOUND: &str = "\u{0}undefined prefix ";
+
 pub struct Parser<'a> {
     toks: &'a [Token<'a>],
     i: usize,
@@ -116,6 +119,29 @@ impl<'a> Parser<'a> {
             ),
         };
         Ok((ns, self.names.intern(local)))
+    }
+
+    /// A function's or variable's name. libxslt checks prefixes only in
+    /// name tests when compiling (XML_XPATH_CHECKNS); an unbound prefix here
+    /// fails only if the call or reference is evaluated ("bound to undefined
+    /// prefix"), so a branch that's never taken can have one (Boost's
+    /// `stbl:convertLength`). It gets a namespace no document can bind, so
+    /// evaluating it fails as an unknown function or variable does.
+    fn call_name(&mut self, prefix: Option<&str>, local: &str) -> Result<Name, XPathError> {
+        match prefix {
+            Some(p) if (self.resolve)(p).is_none() => {
+                Ok((Some(self.unbound(p)), self.names.intern(local)))
+            }
+            _ => self.name(prefix, local),
+        }
+    }
+
+    /// The namespace an unbound prefix gets: one no document can bind. A
+    /// name test with it fails when its step is evaluated (as libxml2's
+    /// xmlXPathNodeCollectAndTest does: libxslt compiles expressions
+    /// without XML_XPATH_CHECKNS); patterns reject it when compiled.
+    fn unbound(&mut self, prefix: &str) -> Sym {
+        self.names.intern(&format!("{UNBOUND}{prefix}"))
     }
 
     fn expr(&mut self) -> Parsed {
@@ -370,11 +396,13 @@ impl<'a> Parser<'a> {
         match tok {
             Tok::Star => Ok(NodeTest::Any),
             Tok::PrefixStar(p) => {
-                let ns = (self.resolve)(p)
-                    .ok_or_else(|| XPathError::syntax(format!("Undefined namespace prefix {p}")))?;
+                let ns = match (self.resolve)(p) {
+                    Some(ns) => ns,
+                    None => self.unbound(p),
+                };
                 Ok(NodeTest::Namespace(Some(ns)))
             }
-            Tok::Name(prefix, local) => Ok(NodeTest::Name(self.name(prefix, local)?)),
+            Tok::Name(prefix, local) => Ok(NodeTest::Name(self.call_name(prefix, local)?)),
             Tok::NodeType(kind) => {
                 self.expect(&Tok::LParen, "'('")?;
                 let test = match kind {
@@ -418,7 +446,7 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.error("Expected an expression"))?;
         self.i += 1;
         match tok {
-            Tok::Variable(prefix, local) => Ok((Expr::Variable(self.name(prefix, local)?), 1)),
+            Tok::Variable(prefix, local) => Ok((Expr::Variable(self.call_name(prefix, local)?), 1)),
             Tok::Literal(s) => Ok((Expr::Literal(s.to_string()), 1)),
             Tok::Number(n) => Ok((Expr::Number(n), 1)),
             Tok::LParen => {
@@ -429,7 +457,7 @@ impl<'a> Parser<'a> {
             Tok::FunctionName(prefix, local) => {
                 let function = match (prefix, CoreFn::from_name(local)) {
                     (None, Some(core)) => Function::Core(core),
-                    _ => Function::Other(self.name(prefix, local)?),
+                    _ => Function::Other(self.call_name(prefix, local)?),
                 };
                 self.expect(&Tok::LParen, "'('")?;
                 let mut args = Vec::new();

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="ISO-Latin-1"?>
+<!-- libxml2 takes "ISO-Latin-1" as ISO-8859-1 (xmlParseCharEncoding), as Boost declares it. -->
+<doc>café</doc>

@@ -225,3 +225,38 @@ mod arguments {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+/// With a declared html method and a DOCTYPE, libxslt's result always holds
+/// the DOCTYPE, so `-o` writes the file even when nothing else is output: an
+/// empty file (mplayer's chunked builds). Other methods write nothing.
+#[test]
+fn empty_html_result_with_doctype_still_writes_the_file() {
+    let dir = std::env::temp_dir().join(format!("oxslt-html-doctype-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let case = |method: &str| {
+        let style = dir.join(format!("{method}.xsl"));
+        std::fs::write(
+            &style,
+            format!(
+                "<xsl:stylesheet version='1.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>\
+                 <xsl:output method='{method}' doctype-system='x.dtd'/>\
+                 <xsl:template match='/'/></xsl:stylesheet>"
+            ),
+        )
+        .unwrap();
+        let out = dir.join(format!("{method}.out"));
+        let input =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cases/01-identity/in.xml");
+        let code = oxslt(&[
+            "-o",
+            out.to_str().unwrap(),
+            style.to_str().unwrap(),
+            input.to_str().unwrap(),
+        ])
+        .0;
+        (code, std::fs::read(&out).ok().map(|b| b.len()))
+    };
+    assert_eq!(case("html"), (0, Some(0)));
+    assert_eq!(case("xml"), (0, None));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

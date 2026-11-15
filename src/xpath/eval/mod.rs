@@ -263,6 +263,10 @@ pub fn evaluate(expr: &Expr, env: &Env, focus: &Focus) -> R<Value> {
             if *op == CompareOp::Eq
                 && let Expr::Path(path) = &**b
                 && streamable(path)
+                && path
+                    .steps
+                    .iter()
+                    .all(|s| unbound_prefix(&s.test, env.names).is_none())
             {
                 let a = evaluate(a, env, focus)?;
                 if let Some(found) = stream_equals(&a, path, env, focus)? {
@@ -353,6 +357,7 @@ fn eval_path(path: &Path, env: &Env, focus: &Focus) -> R<Vec<NodeRef>> {
     // nodes doesn't allocate once per node.
     let mut found = Vec::new();
     for (i, step) in path.steps.iter().enumerate() {
+        unbound_check(&step.test, env)?;
         let context: &[NodeRef] = if i == 0 { start } else { &current };
         let mut next = Vec::new();
         for &n in context {
@@ -816,6 +821,24 @@ fn compare(op: CompareOp, a: &Value, b: &Value, env: &Env) -> bool {
         (NodeSet(x), other) => compare_nodes_with(op, x, other, env, false),
         (other, NodeSet(y)) => compare_nodes_with(op, y, other, env, true),
         _ => compare_atomic(op, a, b, env),
+    }
+}
+
+/// The prefix of a name test whose prefix was unbound when compiled
+/// (`parser::UNBOUND`), if it is one.
+pub(crate) fn unbound_prefix<'n>(test: &NodeTest, names: &'n NamePool) -> Option<&'n str> {
+    let ns = match test {
+        NodeTest::Name((Some(ns), _)) | NodeTest::Namespace(Some(ns)) => *ns,
+        _ => return None,
+    };
+    names.str(ns).strip_prefix(crate::xpath::parser::UNBOUND)
+}
+
+/// libxml2's error when it evaluates a step whose prefix isn't bound.
+fn unbound_check(test: &NodeTest, env: &Env) -> R<()> {
+    match unbound_prefix(test, env.names) {
+        Some(_) => Err(XPathError::runtime("Undefined namespace prefix")),
+        None => Ok(()),
     }
 }
 
