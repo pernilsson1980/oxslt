@@ -1,0 +1,5 @@
+<!DOCTYPE doc [<!ATTLIST doc a CDATA "main-default">]>
+<!-- xsltproc processes XIncludes with XSLT_PARSE_OPTIONS: an included
+     document gets its DTD default attributes even with novalid, while the
+     main document, parsed with novalid, does not. -->
+<doc xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="part.xml"/></doc>

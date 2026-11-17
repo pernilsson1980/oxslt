@@ -1,0 +1,2 @@
+<!DOCTYPE part [<!ATTLIST literal moreinfo CDATA "none">]>
+<part><literal>x</literal></part>

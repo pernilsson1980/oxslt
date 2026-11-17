@@ -488,7 +488,8 @@ fn transform_all(o: &Options, out: &mut Vec<u8>, err: &mut Vec<u8>, exiting: boo
         if style_doc.url.is_none() {
             style_doc.url = Some(style_loc.to_string_lossy().into_owned());
         }
-        let processed = crate::xinclude::process(style_doc, &mut names, &loader, &options);
+        let processed =
+            crate::xinclude::process(style_doc, &mut names, &loader, &xinclude_options(&options));
         for m in processed.warnings.iter().chain(&processed.errors) {
             let _ = writeln!(err, "{m}");
         }
@@ -686,7 +687,7 @@ fn transform_one(
     // xsltproc processes XIncludes before transforming; any XInclude
     // error skips the input with exit 6, and no message of its own.
     if o.xinclude {
-        let processed = crate::xinclude::process(source, names, loader, options);
+        let processed = crate::xinclude::process(source, names, loader, &xinclude_options(options));
         for m in processed.warnings.iter().chain(&processed.errors) {
             let _ = writeln!(err, "{m}");
         }
@@ -785,6 +786,22 @@ fn transform_one(
         }
     }
     code
+}
+
+/// The parser options xsltproc processes the inputs' and the stylesheet's
+/// XIncludes with: libxslt's XSLT_PARSE_OPTIONS, so included documents get
+/// their DTD and its default attributes even with `--novalid` or
+/// `--nodtdattr`, and `--huge` doesn't apply; libxml2's depth limit is
+/// global, so `--maxparserdepth` does. (`document()`'s XIncludes use the
+/// command line's options, ctxt->parserOptions.)
+fn xinclude_options(options: &ParseOptions) -> ParseOptions {
+    ParseOptions {
+        load_dtd: true,
+        dtd_attributes: true,
+        max_depth: options.max_depth,
+        xinclude: options.xinclude,
+        ..ParseOptions::default()
+    }
 }
 
 /// The `href` of an `<?xml-stylesheet?>` before the document element whose

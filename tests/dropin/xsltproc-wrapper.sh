@@ -56,7 +56,7 @@ fi
 snapshot() {
     for r in "${roots[@]}"; do
         [ -d "$r" ] && find "$(cd "$r" && pwd)" -xdev -type f -printf '%p\t%T@\t%s\t%i\n' 2>/dev/null
-    done | grep -v "^$OUT/" | sort -u
+    done | grep -v "^$OUT/" | grep -v "^/tmp/ox-files-" | sort -u
 }
 
 # The files new or changed between two snapshots, as paths.
