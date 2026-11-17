@@ -1,0 +1,21 @@
+# Fifth drop-in batch (2026-11-17), in an image of its own (Dockerfile.solo):
+# XSLT-intensive xsltproc build-dependents left after batches 1-4, chosen for
+# how much they use xsltproc rather than how small their build dependencies
+# are (7.1 GB together). Debian's DocBook guides share TeX Live.
+debian-reference
+maint-guide
+installation-guide
+debian-faq
+refcard
+debmake-doc
+debian-history
+daps
+erlang
+libvirt
+postgis
+gpsbabel
+dia
+pbuilder
+gtk+2.0
+gnucash
+auto-multiple-choice

@@ -56,6 +56,7 @@ impl<'a> Transform<'a> {
             warnings: &self.warnings,
             wanted_globals: &self.wanted_globals,
             dyn_exprs: &self.dyn_exprs,
+            func_calls: &self.func_calls,
         };
         let env = Env {
             docs: &self.docs,

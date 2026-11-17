@@ -64,6 +64,8 @@ impl Compiler<'_> {
                             continue;
                         }
                         out.push(self.instruction(d, n)?);
+                    } else if self.is_extension(d, n) && self.is_func_result(d, n) {
+                        out.push(self.func_result(d, n)?);
                     } else if self.is_extension(d, n) {
                         match self.document_element(d, n)? {
                             Some(instr) => out.push(instr),
@@ -126,7 +128,11 @@ impl Compiler<'_> {
         let ns = q.ns.map(|u| self.names.str(u)).unwrap_or("");
         let local = self.names.str(q.local);
         let saxon = ns == SAXON_NS && local == "output";
-        if !saxon && (local != "document" || !DOCUMENT_ELEMENT_NAMESPACES.contains(&ns)) {
+        // xsl:document, from the abandoned XSLT 1.1 draft, is compiled and
+        // run as exsl:document is (libxslt only sets an unused ver11 flag).
+        let xslt11 = ns == crate::xslt::compile::XSLT_NS && local == "document";
+        if !saxon && !xslt11 && (local != "document" || !DOCUMENT_ELEMENT_NAMESPACES.contains(&ns))
+        {
             return Ok(None);
         }
         let href = if saxon {
@@ -169,6 +175,81 @@ impl Compiler<'_> {
             body,
             location: self.location(d, el),
         }))
+    }
+
+    fn is_func_result(&self, d: &Doc, el: NodeId) -> bool {
+        d.doc.name(el).is_some_and(|q| {
+            q.ns.is_some_and(|u| self.names.str(u) == super::declarations::FUNCTIONS_NS)
+                && self.names.str(q.local) == "result"
+        })
+    }
+
+    /// EXSLT's `func:result`, with libexslt's checks (exsltFuncResultComp):
+    /// only `xsl:fallback` may follow it; it must be inside a func:function
+    /// (the search stops at an `xsl:stylesheet`), not inside another
+    /// func:result or an `xsl:variable` or `xsl:param`.
+    fn func_result(&mut self, d: &Doc, el: NodeId) -> R<Instr> {
+        let doc = d.doc;
+        let mut next = doc.next_sibling(el);
+        while let Some(s) = next {
+            if matches!(doc.kind(s), NodeKind::Element { .. })
+                && !self.is_xslt_named(doc, s, "fallback")
+            {
+                return Err(self.error(
+                    d,
+                    el,
+                    "exsltFuncResultElem: only xsl:fallback is allowed to follow func:result",
+                ));
+            }
+            next = doc.next_sibling(s);
+        }
+        let mut up = doc.parent(el);
+        while let Some(a) = up {
+            if !matches!(doc.kind(a), NodeKind::Element { .. }) {
+                break;
+            }
+            if self.is_xslt_named(doc, a, "stylesheet") {
+                return Err(self.error(
+                    d,
+                    el,
+                    "func:result element not a descendant of a func:function",
+                ));
+            }
+            if let Some(q) = doc.name(a)
+                && q.ns
+                    .is_some_and(|u| self.names.str(u) == super::declarations::FUNCTIONS_NS)
+            {
+                match self.names.str(q.local) {
+                    "function" => break,
+                    "result" => {
+                        return Err(self.error(
+                            d,
+                            el,
+                            "func:result element not allowed within another func:result element",
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            if self.is_xslt_named(doc, a, "variable") || self.is_xslt_named(doc, a, "param") {
+                return Err(self.error(
+                    d,
+                    el,
+                    "func:result element not allowed within a variable binding element",
+                ));
+            }
+            up = doc.parent(a);
+        }
+        let select = match self.attr(doc, el, "select") {
+            Some(s) => Some(self.xpath(d, el, s)?),
+            None => None,
+        };
+        let body = self.body(d, el)?;
+        Ok(Instr::FuncResult {
+            select,
+            body,
+            location: self.location(d, el),
+        })
     }
 
     /// An unknown extension element: its `xsl:fallback` children run instead.
@@ -526,6 +607,9 @@ impl Compiler<'_> {
                 }
             }
             "apply-imports" => Instr::ApplyImports { location },
+            "document" => self
+                .document_element(d, el)?
+                .expect("xsl:document is a document element"),
             "number" => self.number(d, el, location)?,
             _ if d.forwards_compatible => {
                 let mut body = Vec::new();

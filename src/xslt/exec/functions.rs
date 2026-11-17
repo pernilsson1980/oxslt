@@ -68,6 +68,24 @@ pub(super) struct Made {
     pub(super) calls: u64,
 }
 
+/// Calls of `func:function`s during evaluations: a call that hasn't run
+/// yet is recorded and fails, `env_eval` runs it, and the evaluation runs
+/// again and finds its result, keyed like `Made`'s fragments.
+#[derive(Default)]
+pub(super) struct FuncCalls {
+    pub(super) results: HashMap<(u64, u64), Result<Value, XPathError>>,
+    pub(super) pending: Vec<FuncCall>,
+    /// Function calls so far in this run of an evaluation.
+    pub(super) calls: u64,
+}
+
+pub(super) struct FuncCall {
+    pub(super) key: (u64, u64),
+    pub(super) name: Name,
+    pub(super) args: Vec<Value>,
+    pub(super) current: NodeRef,
+}
+
 pub(super) struct XsltFunctions<'a> {
     /// XSLT's current node: the context node of the instruction.
     pub(super) current: NodeRef,
@@ -86,6 +104,7 @@ pub(super) struct XsltFunctions<'a> {
     pub(super) warnings: &'a RefCell<Vec<String>>,
     pub(super) wanted_globals: &'a RefCell<Vec<Name>>,
     pub(super) dyn_exprs: &'a RefCell<DynExprs>,
+    pub(super) func_calls: &'a RefCell<FuncCalls>,
 }
 
 /// dyn:evaluate's expressions by text and namespace context: compiled, or
@@ -228,6 +247,7 @@ impl XsltFunctions<'_> {
                     warnings: self.warnings,
                     wanted_globals: self.wanted_globals,
                     dyn_exprs: self.dyn_exprs,
+                    func_calls: self.func_calls,
                 };
                 let inner = Env {
                     docs: env.docs,
@@ -438,6 +458,21 @@ impl Functions for XsltFunctions<'_> {
         env: &Env,
         focus: &Focus,
     ) -> Option<Result<Value, XPathError>> {
+        if self.ss.functions.contains_key(&name) {
+            let mut calls = self.func_calls.borrow_mut();
+            let key = (self.serial, calls.calls);
+            calls.calls += 1;
+            if let Some(r) = calls.results.get(&key) {
+                return Some(r.clone());
+            }
+            calls.pending.push(FuncCall {
+                key,
+                name,
+                args,
+                current: self.current,
+            });
+            return Some(Err(XPathError::runtime("func:function: calling")));
+        }
         if let Some(ns) = name.0 {
             let local = env.names.str(name.1);
             if env.names.str(ns) == exslt::DYNAMIC && local == "evaluate" {
@@ -571,7 +606,11 @@ impl Functions for XsltFunctions<'_> {
                         (None, f.rsplit(':').next().unwrap_or("").to_string())
                     }
                 };
+                let user = uri
+                    .as_deref()
+                    .and_then(|u| Some((Some(env.names.get(u)?), env.names.get(&local)?)));
                 let available = match uri {
+                    _ if user.is_some_and(|n| self.ss.functions.contains_key(&n)) => true,
                     Some(uri) => exslt::is_available(&uri, &local),
                     None => {
                         crate::xpath::ast::CoreFn::from_name(&local).is_some()

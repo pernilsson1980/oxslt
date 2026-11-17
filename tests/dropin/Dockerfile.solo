@@ -13,13 +13,27 @@ RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.s
  && rm -rf /var/lib/apt/lists/*
 
 COPY ${LIST} /dropin/${LIST}
-RUN apt-get update \
- && for p in $(grep -v '^#' /dropin/${LIST}); do \
+# Build dependencies in three layers (packages 1-6, 7-12, the rest), so a
+# heavy list (TeX Live) never needs room for one huge layer and its packed
+# copy at once. A short list leaves the later layers empty.
+RUN touch /dropin/build-dep-failed && apt-get update \
+ && for p in $(grep -v '^#' /dropin/${LIST} | sed -n '1,6p'); do \
       DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
         || echo "$p" >> /dropin/build-dep-failed; \
     done \
- && rm -rf /var/lib/apt/lists/* \
- && touch /dropin/build-dep-failed
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+ && for p in $(grep -v '^#' /dropin/${LIST} | sed -n '7,12p'); do \
+      DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
+        || echo "$p" >> /dropin/build-dep-failed; \
+    done \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+ && for p in $(grep -v '^#' /dropin/${LIST} | sed -n '13,$p'); do \
+      DEBIAN_FRONTEND=noninteractive apt-get build-dep -y --no-install-recommends "$p" \
+        || echo "$p" >> /dropin/build-dep-failed; \
+    done \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN apt-get update && mkdir -p /dropin/src && cd /dropin/src \
  && for p in $(grep -v '^#' /dropin/${LIST}); do \
       apt-get source --download-only "$p" || echo "$p" >> /dropin/source-failed; \

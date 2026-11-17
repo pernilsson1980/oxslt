@@ -121,6 +121,10 @@ pub struct Transform<'a> {
     loads: RefCell<DocLoads>,
     /// Result tree fragments extension functions made.
     made: RefCell<Made>,
+    /// `func:function` calls during evaluations, and a frame for each one
+    /// running: the `func:result` value, or the error that fails the call.
+    func_calls: RefCell<FuncCalls>,
+    func_frames: Vec<FuncFrame>,
     /// Numbers evaluations, so a rerun finds the fragments it made.
     serial: u64,
     /// The name `token`, for str:tokenize and str:split.
@@ -168,6 +172,21 @@ impl std::fmt::Debug for Transform<'_> {
 
 type R<T> = Result<T, ExecError>;
 
+/// A running `func:function`'s `func:result` value, or the error that
+/// fails the call.
+#[derive(Default)]
+struct FuncFrame {
+    result: Option<Value>,
+    error: Option<String>,
+}
+
+/// Why a `func:function` call failed: an evaluation error (the expression
+/// calling it fails), or one that stops the transform.
+enum FuncFailure {
+    XPath(XPathError),
+    Exec(ExecError),
+}
+
 /// The address of a local: how deep the stack is, for `Limits::stack`.
 #[inline(never)]
 fn stack_address() -> usize {
@@ -191,7 +210,8 @@ fn first_location(body: &Body) -> Option<&Location> {
         | Instr::Number { location, .. }
         | Instr::ApplyImports { location }
         | Instr::Document { location, .. }
-        | Instr::Unsupported { location, .. } => Some(location),
+        | Instr::Unsupported { location, .. }
+        | Instr::FuncResult { location, .. } => Some(location),
         Instr::Variable(v) => Some(&v.location),
         _ => None,
     })
@@ -264,6 +284,8 @@ impl<'a> Transform<'a> {
             keys: RefCell::new(Keys::default()),
             loads: RefCell::new(DocLoads::default()),
             made: RefCell::new(Made::default()),
+            func_calls: RefCell::new(FuncCalls::default()),
+            func_frames: Vec::new(),
             serial: 0,
             token,
             no_scope: Rc::new([]),
@@ -369,6 +391,7 @@ impl<'a> Transform<'a> {
         loop {
             let warnings = self.warnings.borrow().len();
             self.made.borrow_mut().calls = 0;
+            self.func_calls.borrow_mut().calls = 0;
             let result = {
                 let vars = Vars {
                     locals: &self.locals,
@@ -390,6 +413,7 @@ impl<'a> Transform<'a> {
                     warnings: &self.warnings,
                     wanted_globals: &self.wanted_globals,
                     dyn_exprs: &self.dyn_exprs,
+                    func_calls: &self.func_calls,
                 };
                 let env = Env {
                     docs: &self.docs,
@@ -402,12 +426,32 @@ impl<'a> Transform<'a> {
             let wanted = std::mem::take(&mut *self.wanted_globals.borrow_mut());
             let made = std::mem::take(&mut self.made.borrow_mut().pending);
             let to_compile = std::mem::take(&mut self.dyn_exprs.borrow_mut().pending);
+            let calls = std::mem::take(&mut self.func_calls.borrow_mut().pending);
             if self.loads.borrow().pending.is_empty()
                 && wanted.is_empty()
                 && made.is_empty()
                 && to_compile.is_empty()
+                && calls.is_empty()
             {
                 return result;
+            }
+            for call in calls {
+                match self.call_function(call.name, call.args, call.current) {
+                    Ok(v) => {
+                        self.func_calls.borrow_mut().results.insert(call.key, Ok(v));
+                    }
+                    Err(FuncFailure::XPath(e)) => {
+                        self.func_calls
+                            .borrow_mut()
+                            .results
+                            .insert(call.key, Err(e));
+                    }
+                    Err(FuncFailure::Exec(e)) => {
+                        // Passed on as it is by the caller's error mapping.
+                        *self.global_error.borrow_mut() = Some(e);
+                        return Err(XPathError::runtime("func:function failed"));
+                    }
+                }
             }
             self.warnings.borrow_mut().truncate(warnings);
             for key in to_compile {
@@ -705,6 +749,121 @@ impl<'a> Transform<'a> {
             Some(t) => self.call_rule(t, focus, &[]),
             None => self.builtin(focus.node, mode, focus, &[]),
         }
+    }
+
+    /// Runs a `func:function` as libexslt's exsltFuncFunctionFunction does:
+    /// too many arguments fail the call; the recursion limit counts it; the
+    /// body runs with the current node as context, in a scope of its own
+    /// (globals stay visible), its parameters taking the arguments in
+    /// order and their defaults after; its value is its `func:result`'s, or
+    /// the empty string. Writing to the result, or a second func:result,
+    /// fails the call.
+    fn call_function(
+        &mut self,
+        name: Name,
+        args: Vec<Value>,
+        current: NodeRef,
+    ) -> Result<Value, FuncFailure> {
+        let ss = self.ss;
+        let f = &ss.functions[&name];
+        let shown = format!(
+            "{{{}}}{}",
+            name.0.map_or("", |u| self.names.str(u)),
+            self.names.str(name.1)
+        );
+        if args.len() > f.params.len() {
+            return Err(FuncFailure::XPath(XPathError::runtime(format!(
+                "{shown}: called with too many arguments"
+            ))));
+        }
+        if self.depth >= self.max_depth {
+            return Err(FuncFailure::Exec(ExecError::Terminated(format!(
+                "exsltFuncFunctionFunction: Potentially infinite recursion detected in function {shown}."
+            ))));
+        }
+        self.depth += 1;
+        let saved = std::mem::take(&mut self.locals);
+        let saved_passed = std::mem::take(&mut self.passed);
+        self.outer_locals += saved.len();
+        let focus = Focus::single(current);
+        let mut result = Ok(());
+        let mut args = args.into_iter();
+        for p in &f.params {
+            let value = match args.next() {
+                Some(v) => v,
+                None => match self.var_value(&p.value, &focus, &p.location) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        result = Err(e);
+                        break;
+                    }
+                },
+            };
+            self.locals.push((p.name, value));
+        }
+        self.func_frames.push(FuncFrame::default());
+        self.out.push(ResultTree::new(self.cdata.clone()));
+        if result.is_ok() {
+            result = self.body(&f.body, &focus);
+        }
+        let tree = self.out.pop().expect("function output");
+        let frame = self.func_frames.pop().expect("function frame");
+        self.outer_locals -= saved.len();
+        self.locals = saved;
+        self.passed = saved_passed;
+        self.depth -= 1;
+        result.map_err(FuncFailure::Exec)?;
+        if let Some(e) = frame.error {
+            return Err(FuncFailure::XPath(XPathError::runtime(e)));
+        }
+        let wrote = tree
+            .finish(self.names)
+            .map(|d| d.children(d.root()).next().is_some())
+            .unwrap_or(true);
+        if wrote {
+            return Err(FuncFailure::XPath(XPathError::runtime(format!(
+                "{shown}: cannot write to result tree while executing a function"
+            ))));
+        }
+        Ok(frame.result.unwrap_or(Value::String(String::new())))
+    }
+
+    /// `func:result` (libexslt's exsltFuncResultElem): the running
+    /// function's value, from `select`, from the content as a fragment, or
+    /// the empty string. A second one, or content with `select`, fails the
+    /// function.
+    fn func_result(
+        &mut self,
+        select: Option<&Expr>,
+        body: &Body,
+        focus: &Focus,
+        location: &Location,
+    ) -> R<()> {
+        let Some(frame) = self.func_frames.last_mut() else {
+            return Ok(());
+        };
+        if frame.result.is_some() {
+            frame.error = Some("func:result already instanciated".into());
+            return Ok(());
+        }
+        let value = match select {
+            Some(_) if !body.is_empty() => {
+                frame.error = Some(
+                    "func:result content must be empty if the function has a select attribute"
+                        .into(),
+                );
+                return Ok(());
+            }
+            Some(e) => self.eval(e, focus, location)?,
+            None if !body.is_empty() => {
+                self.var_value(&VarValue::Body(body.clone()), focus, location)?
+            }
+            None => Value::String(String::new()),
+        };
+        if let Some(frame) = self.func_frames.last_mut() {
+            frame.result = Some(value);
+        }
+        Ok(())
     }
 
     /// The built-in template rules. As libxslt's xsltDefaultProcessOneNode
@@ -1083,6 +1242,11 @@ impl<'a> Transform<'a> {
                 body,
                 location,
             } => self.document_element(href.as_ref(), settings, body, focus, location),
+            Instr::FuncResult {
+                select,
+                body,
+                location,
+            } => self.func_result(select.as_ref(), body, focus, location),
             Instr::Unsupported { what, location } => Err(ExecError::Runtime(format!(
                 "{}\n{what} isn't supported yet",
                 where_(location)

@@ -124,6 +124,7 @@ pub fn compile_with(
         global_modules: Vec::new(),
         global_variables: HashSet::new(),
         module_sets: HashMap::new(),
+        module_functions: Vec::new(),
         cdata_modules: Vec::new(),
         scopes: Default::default(),
         scope_scratch: Default::default(),
@@ -183,6 +184,9 @@ struct Compiler<'n> {
     global_variables: HashSet<(usize, Name)>,
     /// Attribute sets by name, one per module that defines the name.
     module_sets: HashMap<Name, Vec<(usize, AttributeSet)>>,
+    /// Every func:function definition with its module, until
+    /// `assign_precedence` keeps the highest-precedence one of each name.
+    module_functions: Vec<(Name, crate::xslt::ir::UserFunction)>,
     /// `cdata-section-elements` names, with the module declaring each.
     cdata_modules: Vec<(usize, Name)>,
     /// Shared copies of in-scope namespace lists, for locations.

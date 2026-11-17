@@ -38,6 +38,19 @@ pub struct Stylesheet {
     /// libxslt indexes them (xsltInitAllDocKeys): highest precedence
     /// first, then as declared.
     pub key_order: Vec<(Name, usize)>,
+    /// EXSLT `func:function` definitions by name: the highest-precedence
+    /// one of each (libexslt's exsltFuncInit).
+    pub functions: HashMap<Name, UserFunction>,
+}
+
+/// An EXSLT `func:function`: its leading `xsl:param`s and the rest.
+#[derive(Debug)]
+pub struct UserFunction {
+    pub params: Vec<Variable>,
+    pub body: Body,
+    pub location: Location,
+    /// Import precedence (a module number while compiling).
+    pub precedence: usize,
 }
 
 #[derive(Debug)]
@@ -245,6 +258,12 @@ pub enum Instr {
     },
     Unsupported {
         what: String,
+        location: Location,
+    },
+    /// EXSLT `func:result`: the value of the `func:function` being run.
+    FuncResult {
+        select: Option<Expr>,
+        body: Body,
         location: Location,
     },
 }

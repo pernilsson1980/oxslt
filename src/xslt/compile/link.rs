@@ -30,6 +30,10 @@ fn refs_in_body(body: &Body, out: &mut Vec<Name>) {
             | Instr::UnescapedText(_)
             | Instr::ApplyImports { .. }
             | Instr::Unsupported { .. } => {}
+            Instr::FuncResult { select, body, .. } => {
+                select.iter().for_each(|e| refs_in_expr(e, out));
+                refs_in_body(body, out);
+            }
             Instr::Document {
                 href,
                 settings,
@@ -179,6 +183,18 @@ impl Compiler<'_> {
         }
         for r in &mut self.ss.space {
             r.precedence = rank[r.precedence];
+        }
+        // func:function: the highest-precedence definition of each name
+        // (exsltFuncInit registers the principal stylesheet's, then each
+        // import's that isn't there yet, highest precedence first).
+        for (name, mut f) in std::mem::take(&mut self.module_functions) {
+            f.precedence = rank[f.precedence];
+            match self.ss.functions.get(&name) {
+                Some(old) if old.precedence >= f.precedence => {}
+                _ => {
+                    self.ss.functions.insert(name, f);
+                }
+            }
         }
         let mut key_order = Vec::new();
         for (&name, defs) in &mut self.ss.keys {

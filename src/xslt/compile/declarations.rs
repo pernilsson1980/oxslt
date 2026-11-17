@@ -4,6 +4,9 @@
 
 use super::*;
 
+/// EXSLT's functions namespace (`func:function`, `func:result`).
+pub(super) const FUNCTIONS_NS: &str = "http://exslt.org/functions";
+
 impl Compiler<'_> {
     pub(super) fn namespace_alias(&mut self, d: &Doc, el: NodeId) -> R<()> {
         let scope = self.in_scope(d.doc, el);
@@ -51,6 +54,12 @@ impl Compiler<'_> {
             return Ok(());
         }
         if !self.is_xslt(d.doc, el) {
+            if let Some(q) = d.doc.name(el)
+                && q.ns.is_some_and(|u| self.names.str(u) == FUNCTIONS_NS)
+                && self.names.str(q.local) == "function"
+            {
+                return self.func_function(d, el);
+            }
             // Top-level elements in other namespaces are ignored; with no
             // namespace, libxslt rejects them.
             if d.doc.name(el).is_some_and(|q| q.ns.is_none()) {
@@ -110,6 +119,67 @@ impl Compiler<'_> {
                 format!("xsltParseStylesheetTop: unknown {local} element"),
             )),
         }
+    }
+
+    /// EXSLT's `func:function` (libexslt's exsltFuncFunctionComp): its
+    /// name must be a prefixed QName with a declared prefix, or it's skipped
+    /// with a message; its leading `xsl:param`s are the arguments. Two of one
+    /// name in a stylesheet and its includes are an error.
+    fn func_function(&mut self, d: &Doc, el: NodeId) -> R<()> {
+        let qname = self.attr(d.doc, el, "name").unwrap_or("").to_string();
+        let Some((prefix, local)) = qname
+            .split_once(':')
+            .filter(|(p, l)| !p.is_empty() && !l.is_empty())
+        else {
+            self.warnings.push("func:function: not a QName".to_string());
+            return Ok(());
+        };
+        let scope = self.prefix_scope(d, el);
+        let Some(&(_, uri)) = scope.iter().find(|(p, _)| p == prefix) else {
+            self.warnings
+                .push(format!("func:function: undeclared prefix {prefix}"));
+            return Ok(());
+        };
+        let name: Name = (Some(uri), self.names.intern(local));
+        if self
+            .module_functions
+            .iter()
+            .any(|(n, f)| *n == name && f.precedence == self.precedence)
+        {
+            let uri = self.names.str(uri).to_string();
+            return Err(self.error(
+                d,
+                el,
+                format!("Failed to register function {{{uri}}}{local}"),
+            ));
+        }
+        let mut params = Vec::new();
+        let mut rest = Vec::new();
+        let mut in_params = true;
+        for child in d.doc.children(el) {
+            if in_params && self.is_xslt_named(d.doc, child, "param") {
+                params.push(self.variable(d, child)?);
+                continue;
+            }
+            if matches!(d.doc.kind(child), NodeKind::Element { .. })
+                || !self.ignorable_text(d, child, el)
+            {
+                in_params = false;
+            }
+            rest.push(child);
+        }
+        let body = self.nodes(d, el, &rest)?;
+        let location = self.location(d, el);
+        self.module_functions.push((
+            name,
+            crate::xslt::ir::UserFunction {
+                params,
+                body,
+                location,
+                precedence: self.precedence,
+            },
+        ));
+        Ok(())
     }
 
     pub(super) fn add_template(&mut self, mut t: Template, priority: Option<f64>) {
