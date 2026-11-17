@@ -29,12 +29,14 @@ The smaller known differences from `xsltproc` are listed in [CLAUDE.md](CLAUDE.m
 
 ## Usage
 
-Building needs Rust 1.88 or later.
+Install it from crates.io (this needs Rust 1.88 or later):
 
 ```sh
-cargo build --release
-target/release/oxslt [options] stylesheet.xsl input.xml [input.xml ...]
+cargo install oxslt
+oxslt [options] stylesheet.xsl input.xml [input.xml ...]
 ```
+
+Or build it from a clone of this repository with `cargo build --release`; the binary is `target/release/oxslt`.
 
 As with `xsltproc`, `-` in place of a file name reads it from standard input.
 
