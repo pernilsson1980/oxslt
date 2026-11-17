@@ -300,6 +300,7 @@ Treat every stylesheet and input document as untrusted code. XSLT is Turing-comp
 - **Stream output:** buffered serialisation written straight to the output.
 - **Keep start-up fast.** That's what xsltproc users rely on most.
 - **No micro-optimisation in the PoC.** Benchmark against xsltproc first (`scripts/bench.sh`, `tests/bench/RESULTS.md`).
+- **When a benchmark run is recorded** in `tests/bench/RESULTS.md`, update the README's table too: it shows four of the workloads (docbook-chunked, darktable-prefs, wireshark-values-FIX50SP2, html-report-27MB) with the date they were measured.
 - **Hashing:** maps keyed by symbols or node IDs use `tree::SymMap` (fast, and safe because those are numbered as created). Maps keyed by strings from documents or stylesheets keep std's keyed SipHash, against hash flooding.
 - **Don't allocate per node.** Borrow from the source document or the input instead of copying into a String, reuse scratch buffers (the parser's attribute buffer, XPath's step buffer), and share per-element compile data (`Compiler::shared_scope`). Count allocations when touching a hot path; `tests/bench/RESULTS.md` has the counts.
 - **Watch for hidden quadratic costs.** Both slow cases the benchmarks found were O(n²) work done once per node: ranking siblings to check a pattern predicate, and allocating per context node in a step. Check for this first when something is slow.

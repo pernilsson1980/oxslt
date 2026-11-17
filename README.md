@@ -77,7 +77,16 @@ On Debian-based systems, `update-alternatives` can do the same system-wide. Like
 
 ## Performance
 
-On native arm64 Linux, oxslt is faster than `xsltproc` on all 15 benchmark workloads and uses less memory on all of them, about half on most. A chunked DocBook build runs about 1.4 times as fast, and in drop-in testing GIMP's manual about twice as fast and Csound's 1,751 pages about 1.2 times. Details and methods are in [tests/bench/RESULTS.md](tests/bench/RESULTS.md); `scripts/bench.sh` reruns the benchmarks.
+On native arm64 Linux, oxslt is faster than `xsltproc` on all 15 benchmark workloads and uses less memory on all of them. The four that best stand for real use (measured 2026-11-15):
+
+| Workload | | `xsltproc` | oxslt | Speed | Memory (`xsltproc` / oxslt) |
+|---|---|---:|---:|---:|---:|
+| docbook-chunked | DocBook XSL's chunker on a 400-page book | 11.4 s | 8.0 s | 1.42× | 57 / 45 MB |
+| darktable-prefs | a real build stylesheet; mostly start-up and parsing | 10.2 ms | 8.0 ms | 1.27× | 7.8 / 4.8 MB |
+| wireshark-values-FIX50SP2 | a real build stylesheet on its largest input | 31.9 ms | 9.8 ms | 3.27× | 13.3 / 6.5 MB |
+| html-report-27MB | a 27 MB document to an HTML report | 2.59 s | 1.18 s | 2.20× | 718 / 390 MB |
+
+In drop-in testing, GIMP's manual built about twice as fast and Csound's 1,751 pages about 1.2 times. All 15 workloads, the methods and the history are in [tests/bench/RESULTS.md](tests/bench/RESULTS.md); `scripts/bench.sh` reruns the benchmarks.
 
 ## Security
 
