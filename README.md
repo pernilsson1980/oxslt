@@ -25,7 +25,7 @@ Compatibility is measured against Debian bookworm's `xsltproc` (libxml2 2.9.14, 
 - EBCDIC encodings.
 - `xsl:sort`'s `lang` attribute is ignored.
 
-The smaller known differences from `xsltproc` are listed in [CLAUDE.md](CLAUDE.md#known-differences-from-xsltproc).
+The smaller known differences from `xsltproc` are listed in [CLAUDE.md](CLAUDE.md#known-differences-from-xsltproc). [ARCHITECTURE.md](ARCHITECTURE.md) is a map of the code.
 
 ## Usage
 

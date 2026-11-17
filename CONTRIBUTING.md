@@ -11,6 +11,8 @@ Open an issue with the stylesheet, the input and the command line, and what
 
 ## Changing the code
 
+[ARCHITECTURE.md](ARCHITECTURE.md) is a map of the code.
+
 - Check `xsltproc`'s behaviour in its source or by running it, and match
   it, quirks included; comments name the C function a port follows.
   `CLAUDE.md` records the behaviour and decisions so far.
