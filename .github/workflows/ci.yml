@@ -7,6 +7,9 @@ name: CI
 on:
   push:
   pull_request:
+  # Run by hand from the Actions page; this is the only run that also tests
+  # on macOS (see the matrix below).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,10 +27,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS only in runs started by hand: GitHub's macOS runners are
+        # sometimes unavailable for hours, and a job that never gets a runner
+        # fails the run even with continue-on-error.
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    # GitHub's macOS runners are sometimes unavailable for hours; a missing
-    # runner (or a macOS-only failure) shouldn't mark the whole run as failed.
+    # A macOS-only test failure shouldn't mark the whole run as failed.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
