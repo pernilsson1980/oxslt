@@ -26,6 +26,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # GitHub's macOS runners are sometimes unavailable for hours; a missing
+    # runner (or a macOS-only failure) shouldn't mark the whole run as failed.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
